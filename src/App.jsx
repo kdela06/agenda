@@ -180,6 +180,38 @@ function AgendaWorkspace() {
     }
   }, [carpetaActual, token]);
 
+  // --- ATAJO DE TECLADO (ALT + Q) PARA CAMBIAR PESTAÑAS ---
+  useEffect(() => {
+      const handleKeyDown = (e) => {
+          // Detectar si pulsa Alt + Q
+          if (e.altKey && e.key.toLowerCase() === 'q') {
+              e.preventDefault(); // Evita que el navegador haga cosas raras
+              
+              // 1. Recopilamos todas las ventanas que están abiertas ahora mismo
+              const todasLasPestañas = [
+                  'escritorio', // Siempre podemos volver al inicio
+                  ...ventanasAbiertas.map(v => v.id),
+                  ...pdfsAbiertos.map(p => p.id),
+                  ...editoresAbiertos.map(ed => ed.id)
+              ];
+              
+              if (todasLasPestañas.length <= 1) return; // Si solo está el escritorio, no hacemos nada
+              
+              // 2. Buscamos dónde estamos ahora mismo
+              const indiceActual = todasLasPestañas.indexOf(ventanaActiva);
+              
+              // 3. Calculamos la siguiente (y si llega al final, vuelve al principio)
+              const siguienteIndice = (indiceActual + 1) % todasLasPestañas.length;
+              
+              // 4. Enfocamos la nueva ventana usando tu cerebro inteligente
+              enfocarVentana(todasLasPestañas[siguienteIndice]);
+          }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [ventanaActiva, ventanasAbiertas, pdfsAbiertos, editoresAbiertos]); // <-- Muy importante poner las dependencias
+
   // --- LOGIN ---
   const login = useGoogleLogin({
     onSuccess: async (codeResponse) => {
