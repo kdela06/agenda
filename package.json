@@ -1,0 +1,31 @@
+{
+  "name": "agenda",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "homepage": "https://kdela06.github.io/agenda",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@react-oauth/google": "^0.13.4",
+    "axios": "^1.7.9",
+    "jwt-decode": "^4.0.0",
+    "pdfjs-dist": "^4.4.168",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-pdf": "^9.1.0",
+    "vite-plugin-pwa": "^1.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "gh-pages": "^6.3.0",
+    "vite": "^6.0.5"
+  }
+}
