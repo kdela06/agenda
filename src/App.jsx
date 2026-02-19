@@ -1052,7 +1052,12 @@ function AgendaWorkspace() {
                     <div key={pdf.id} style={calcularEstiloVentana(pdf.id, "#525659")} onMouseDown={() => { if(pantallaDividida) setFocoDividido(ventanaDerecha === pdf.id ? 'der' : 'izq'); }}>
                         <div style={xpWindowHeader}>
                             <span>📄 PDF: {pdf.file.name}</span>
-                            <div style={{display:"flex", gap:"5px"}}>
+                            <div style={{display:"flex", gap:"5px", alignItems: "center"}}>
+                                {/* NUEVO BOTÓN PARA OCULTAR/MOSTRAR CONTROLES */}
+                                <button onClick={() => actualizarPdf(pdf.id, { mostrarControles: pdf.mostrarControles === false ? true : false })} style={{cursor:"pointer", border:"1px solid rgba(255,255,255,0.5)", background:"rgba(255,255,255,0.2)", color:"white", padding:"2px 8px", borderRadius:"3px", fontSize:"12px", fontFamily:"'Mali', cursive", marginRight: "5px"}}>
+                                    {pdf.mostrarControles === false ? '▼ Controles' : '▲ Ocultar'}
+                                </button>
+                                
                                 <button onClick={(e)=>moverAIzquierda(pdf.id, e)} style={xpWinControl} title="Mover a Izquierda">◧</button>
                                 <button onClick={(e)=>moverADerecha(pdf.id, e)} style={xpWinControl} title="Mover a Derecha">◨</button>
                                 <button onClick={(e)=>maximizarVentana(pdf.id, e)} style={xpWinControl} title="Pantalla Completa">□</button>
@@ -1061,38 +1066,41 @@ function AgendaWorkspace() {
                             </div>
                         </div>
                         
-                        <div style={{padding:"5px", background:"#333", color:"white", display:"flex", gap:"10px", justifyContent:"center", alignItems:"center", flexWrap: "wrap"}}>
-                            {/* Controles de página */}
-                            <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.max(1, pdf.pageNumber - 1) })} disabled={pdf.pageNumber <= 1} style={xpButton}>◀ Ant</button>
-                            
-                            <div style={{display: "flex", alignItems: "center", gap: "5px"}}>
-                                <span>Pág</span>
-                                <input 
-                                    type="number" 
-                                    value={pdf.pageNumber} 
-                                    onChange={(e) => {
-                                        let page = parseInt(e.target.value);
-                                        if (!isNaN(page)) {
-                                            if (pdf.numPages && page > pdf.numPages) page = pdf.numPages;
-                                            if (page < 1) page = 1;
-                                            actualizarPdf(pdf.id, { pageNumber: page });
-                                        }
-                                    }}
-                                    style={{ width: "50px", textAlign: "center", borderRadius: "3px", border: "none", padding: "2px", fontFamily: "'Mali', cursive", outline: "none", color: "black" }}
-                                />
-                                <span> {pdf.numPages ? `de ${pdf.numPages}` : ''}</span>
-                            </div>
+                        {/* BARRA DE CONTROLES (OCULTABLE) */}
+                        {pdf.mostrarControles !== false && (
+                            <div style={{padding:"5px", background:"#333", color:"white", display:"flex", gap:"10px", justifyContent:"center", alignItems:"center", flexWrap: "wrap"}}>
+                                {/* Controles de página */}
+                                <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.max(1, pdf.pageNumber - 1) })} disabled={pdf.pageNumber <= 1} style={xpButton}>◀ Ant</button>
+                                
+                                <div style={{display: "flex", alignItems: "center", gap: "5px"}}>
+                                    <span>Pág</span>
+                                    <input 
+                                        type="number" 
+                                        value={pdf.pageNumber} 
+                                        onChange={(e) => {
+                                            let page = parseInt(e.target.value);
+                                            if (!isNaN(page)) {
+                                                if (pdf.numPages && page > pdf.numPages) page = pdf.numPages;
+                                                if (page < 1) page = 1;
+                                                actualizarPdf(pdf.id, { pageNumber: page });
+                                            }
+                                        }}
+                                        style={{ width: "50px", textAlign: "center", borderRadius: "3px", border: "none", padding: "2px", fontFamily: "'Mali', cursive", outline: "none", color: "black" }}
+                                    />
+                                    <span> {pdf.numPages ? `de ${pdf.numPages}` : ''}</span>
+                                </div>
 
-                            <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.min(pdf.numPages || 999, pdf.pageNumber + 1) })} disabled={pdf.numPages && pdf.pageNumber >= pdf.numPages} style={xpButton}>Sig ▶</button>
-                            
-                            {/* Separador vertical */}
-                            <div style={{ borderLeft: "2px solid #555", height: "20px", margin: "0 5px" }}></div>
-                            
-                            {/* Controles de Zoom */}
-                            <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.max(0.5, (pdf.zoom || 1) - 0.2) })} style={xpButton}>🔍 -</button>
-                            <span style={{ fontSize: "13px", width: "45px", textAlign: "center" }}>{Math.round((pdf.zoom || 1) * 100)}%</span>
-                            <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.min(3, (pdf.zoom || 1) + 0.2) })} style={xpButton}>🔍 +</button>
-                        </div>
+                                <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.min(pdf.numPages || 999, pdf.pageNumber + 1) })} disabled={pdf.numPages && pdf.pageNumber >= pdf.numPages} style={xpButton}>Sig ▶</button>
+                                
+                                {/* Separador vertical */}
+                                <div style={{ borderLeft: "2px solid #555", height: "20px", margin: "0 5px" }}></div>
+                                
+                                {/* Controles de Zoom */}
+                                <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.max(0.5, (pdf.zoom || 1) - 0.1) })} style={xpButton}>🔍 -</button>
+                                <span style={{ fontSize: "13px", width: "45px", textAlign: "center" }}>{Math.round((pdf.zoom || 1) * 100)}%</span>
+                                <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.min(3, (pdf.zoom || 1) + 0.1) })} style={xpButton}>🔍 +</button>
+                            </div>
+                        )}
 
                         <div style={{flex:1, overflow:"auto", display:"flex", justifyContent:"center", background:"#525659", padding:"20px"}}>
                             {pdf.error ? (
