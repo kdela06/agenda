@@ -72,19 +72,15 @@ function AgendaWorkspace() {
   const [evtFechaFin, setEvtFechaFin] = useState(""); 
   const [evtHoraFin, setEvtHoraFin] = useState("");   
 
-  // --- VENTANAS ---
+// --- VENTANAS (MULTITAREA) ---
   const [ventanasAbiertas, setVentanasAbiertas] = useState([]);
   const [ventanaActiva, setVentanaActiva] = useState('escritorio'); 
-  const [archivoEditando, setArchivoEditando] = useState(null); 
-  const [contenidoEditor, setContenidoEditor] = useState("");
-  const [modoEditor, setModoEditor] = useState("txt"); 
   
-  // --- PDF ---
-  const [pdfBlob, setPdfBlob] = useState(null);
-  const [numPages, setNumPages] = useState(null);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pdfError, setPdfError] = useState(null);
+  // Arrays para múltiples archivos (Sustituyen a archivoEditando, pdfFile, etc.)
+  const [editoresAbiertos, setEditoresAbiertos] = useState([]); 
+  const [pdfsAbiertos, setPdfsAbiertos] = useState([]);
   
+  // --- WIDGETS Y CALENDARIO ---
   const [verWidgets, setVerWidgets] = useState(true);
   const [verCalendario, setVerCalendario] = useState(true);
 
@@ -363,29 +359,36 @@ function AgendaWorkspace() {
   };
 
   const abrirEnEditor = async (archivo, modo) => {
+        // Si ya está abierto, solo lo enfocamos
+        if (editoresAbiertos.find(e => e.id === archivo.id)) { setVentanaActiva(archivo.id); return; }
+        try { 
+            const res = await axios.get(`https://www.googleapis.com/drive/v3/files/${archivo.id}`, { headers: { Authorization: `Bearer ${token}` }, params: { alt: 'media' }, responseType: 'text' }); 
+            setEditoresAbiertos(prev => [...prev, { id: archivo.id, file: archivo, content: res.data, modo }]);
+            setVentanaActiva(archivo.id); 
+        } catch (err) { alert("Error leyendo archivo"); }
+    };
+
+  const guardarCambiosEditor = async (id) => { 
+      const editor = editoresAbiertos.find(e => e.id === id);
+      if (!editor) return; 
       try { 
-          const res = await axios.get(`https://www.googleapis.com/drive/v3/files/${archivo.id}`, { headers: { Authorization: `Bearer ${token}` }, params: { alt: 'media' }, responseType: 'text' }); 
-          setContenidoEditor(res.data); 
-          setArchivoEditando(archivo); 
-          setModoEditor(modo); 
-          setVentanaActiva('EDITOR'); 
-      } catch (err) { alert("Error leyendo archivo"); }
+          await axios.patch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, editor.content, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' } }); 
+          alert("✅ Guardado correctamente");
+      } catch (err) { console.error("Error al guardar"); } 
   };
 
-  const guardarCambiosEditor = async (valor) => { 
-      const contenidoFinal = typeof valor === 'string' ? valor : contenidoEditor;
-      if (!archivoEditando) return; 
-      try { await axios.patch(`https://www.googleapis.com/upload/drive/v3/files/${archivoEditando.id}?uploadType=media`, contenidoFinal, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' } }); } catch (err) { console.error("Error al guardar"); } 
+  const actualizarContenido = (id, nuevoContenido) => {
+      setEditoresAbiertos(prev => prev.map(e => e.id === id ? { ...e, content: nuevoContenido } : e));
   };
 
-  const handleTabKeySimple = (e) => {
-      if (e.key === 'Tab') { e.preventDefault(); const start = e.target.selectionStart; const end = e.target.selectionEnd; const val = e.target.value; setContenidoEditor(val.substring(0, start) + "\t" + val.substring(end)); setTimeout(() => { e.target.selectionStart = e.target.selectionEnd = start + 1; }, 0); }
+  const handleTabKeyMultiple = (e, id) => {
+      if (e.key === 'Tab') { e.preventDefault(); const start = e.target.selectionStart; const end = e.target.selectionEnd; const val = e.target.value; 
+      actualizarContenido(id, val.substring(0, start) + "\t" + val.substring(end)); 
+      setTimeout(() => { e.target.selectionStart = e.target.selectionEnd = start + 1; }, 0); }
   };
 
-  const onDocumentLoadSuccess = ({ numPages }) => {
-    setNumPages(numPages);
-    setPageNumber(1);
-    setPdfError(null);
+  const actualizarPdf = (id, datosActualizados) => {
+      setPdfsAbiertos(prev => prev.map(p => p.id === id ? { ...p, ...datosActualizados } : p));
   };
 
   const detectarTipoYAbrir = async (archivo) => {
@@ -397,14 +400,12 @@ function AgendaWorkspace() {
           abrirEnEditor(archivo, esTxtPuro ? 'txt' : 'code'); 
       
       } else if (mime.includes('pdf')) {
-          setPdfError(null);
-          setVentanaActiva('PDF_VIEWER'); 
-          setArchivoEditando(archivo);
+          if (pdfsAbiertos.find(p => p.id === archivo.id)) { setVentanaActiva(archivo.id); return; }
           try {
-             // Descargamos el blob binario
              const res = await axios.get(`https://www.googleapis.com/drive/v3/files/${archivo.id}?alt=media`, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' });
-             setPdfBlob(res.data);
-          } catch (e) { setPdfError("Error al descargar el PDF de Drive."); }
+             setPdfsAbiertos(prev => [...prev, { id: archivo.id, file: archivo, blob: res.data, pageNumber: 1, numPages: null, error: null }]);
+             setVentanaActiva(archivo.id);
+          } catch (e) { alert("Error al descargar el PDF de Drive."); }
 
       } else if (mime.includes('image')) {
           try {
@@ -704,99 +705,99 @@ function AgendaWorkspace() {
                     </div>
                 ))}
 
-                {/* VISOR PDF (REACT-PDF) */}
-                {archivoEditando && ventanaActiva === 'PDF_VIEWER' && (
-                    <div style={{display: 'flex', position:"absolute", top:0, left:0, width:"100%", height:"100%", background:"#525659", flexDirection:"column", zIndex:200}}>
+                {/* VISOR PDF MULTIPLE */}
+                {pdfsAbiertos.map(pdf => (
+                    <div key={pdf.id} style={{display: ventanaActiva === pdf.id ? 'flex' : 'none', position:"absolute", top:0, left:0, width:"100%", height:"100%", background:"#525659", flexDirection:"column", zIndex:200}}>
                         <div style={xpWindowHeader}>
-                            <span>📄 PDF: {archivoEditando.name}</span>
+                            <span>📄 PDF: {pdf.file.name}</span>
                             <div style={{display:"flex", gap:"5px"}}>
                                 <button onClick={()=>setVentanaActiva('escritorio')} style={xpWinControl}>_</button>
-                                <button onClick={()=>{setArchivoEditando(null); setPdfBlob(null); setVentanaActiva('escritorio')}} style={{...xpWinControl, background:"#ff4444", color:"white"}}>X</button>
+                                <button onClick={()=>{setPdfsAbiertos(prev => prev.filter(p => p.id !== pdf.id)); if(ventanaActiva === pdf.id) setVentanaActiva('escritorio');}} style={{...xpWinControl, background:"#ff4444", color:"white"}}>X</button>
                             </div>
                         </div>
                         
-                        <div style={{padding:"5px", background:"#333", color:"white", display:"flex", gap:"10px", justifyContent:"center", alignItems:"center"}}>
-                            <button onClick={()=>setPageNumber(Math.max(1, pageNumber - 1))} disabled={pageNumber <= 1} style={xpButton}>◀ Ant</button>
-                            <span>Pág {pageNumber} {numPages ? `de ${numPages}` : ''}</span>
-                            <button onClick={()=>setPageNumber(Math.min(numPages || 999, pageNumber + 1))} disabled={numPages && pageNumber >= numPages} style={xpButton}>Sig ▶</button>
+                        <div style={{padding:"5px", background:"#333", color:"white", display:"flex", gap:"10px", justifyContent:"center", alignItems:"center", flexWrap: "wrap"}}>
+                            {/* Controles de página */}
+                            <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.max(1, pdf.pageNumber - 1) })} disabled={pdf.pageNumber <= 1} style={xpButton}>◀ Ant</button>
+                            
+                            <div style={{display: "flex", alignItems: "center", gap: "5px"}}>
+                                <span>Pág</span>
+                                <input 
+                                    type="number" 
+                                    value={pdf.pageNumber} 
+                                    onChange={(e) => {
+                                        let page = parseInt(e.target.value);
+                                        if (!isNaN(page)) {
+                                            if (pdf.numPages && page > pdf.numPages) page = pdf.numPages;
+                                            if (page < 1) page = 1;
+                                            actualizarPdf(pdf.id, { pageNumber: page });
+                                        }
+                                    }}
+                                    style={{ width: "50px", textAlign: "center", borderRadius: "3px", border: "none", padding: "2px", fontFamily: "'Mali', cursive", outline: "none", color: "black" }}
+                                />
+                                <span> {pdf.numPages ? `de ${pdf.numPages}` : ''}</span>
+                            </div>
+
+                            <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.min(pdf.numPages || 999, pdf.pageNumber + 1) })} disabled={pdf.numPages && pdf.pageNumber >= pdf.numPages} style={xpButton}>Sig ▶</button>
+                            
+                            {/* Separador vertical */}
+                            <div style={{ borderLeft: "2px solid #555", height: "20px", margin: "0 5px" }}></div>
+                            
+                            {/* Controles de Zoom */}
+                            <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.max(0.5, (pdf.zoom || 1) - 0.2) })} style={xpButton}>🔍 -</button>
+                            <span style={{ fontSize: "13px", width: "45px", textAlign: "center" }}>{Math.round((pdf.zoom || 1) * 100)}%</span>
+                            <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.min(3, (pdf.zoom || 1) + 0.2) })} style={xpButton}>🔍 +</button>
                         </div>
 
                         <div style={{flex:1, overflow:"auto", display:"flex", justifyContent:"center", background:"#525659", padding:"20px"}}>
-                            {pdfError ? (
-                                <div style={{color:"white", padding:"20px"}}>{pdfError}</div>
-                            ) : pdfBlob ? (
-                                <Document 
-                                    file={pdfBlob} 
-                                    onLoadSuccess={onDocumentLoadSuccess}
-                                    onLoadError={(e) => setPdfError("Error al abrir PDF: " + e.message)}
-                                    loading={<div style={{color:"white"}}>Cargando documento...</div>}
-                                >
-                                    <Page 
-                                        pageNumber={pageNumber} 
-                                        renderTextLayer={false} 
-                                        renderAnnotationLayer={false} 
-                                        width={Math.min(anchoVentana * 0.9, 800)} 
-                                    />
+                            {pdf.error ? (
+                                <div style={{color:"white", padding:"20px"}}>{pdf.error}</div>
+                            ) : pdf.blob ? (
+                                <Document file={pdf.blob} onLoadSuccess={({ numPages }) => actualizarPdf(pdf.id, { numPages, error: null })} onLoadError={(e) => actualizarPdf(pdf.id, { error: "Error al abrir PDF: " + e.message })} loading={<div style={{color:"white"}}>Cargando documento...</div>}>
+                                    <Page pageNumber={pdf.pageNumber} renderTextLayer={false} renderAnnotationLayer={false} width={Math.min(anchoVentana * 0.9, 800) * (pdf.zoom || 1)} />
                                 </Document>
-                            ) : (
-                                <div style={{color:"white"}}>Descargando...</div>
-                            )}
+                            ) : (<div style={{color:"white"}}>Descargando...</div>)}
                         </div>
                     </div>
-                )}
+                ))}
 
-                {/* EDITOR (HÍBRIDO) */}
-                {archivoEditando && ventanaActiva === 'EDITOR' && (
-                    <div style={{display: 'flex', position:"absolute", top:0, left:0, width:"100%", height:"100%", background: modoEditor === 'code' ? "#1e1e1e" : "#fff", color: modoEditor === 'code' ? "#d4d4d4" : "#000", zIndex:200, flexDirection:"column", border: modoEditor === 'txt' ? "10px solid #C99597" : "none"}}>
-                         <div style={{background: modoEditor === 'code' ? "#3c3c3c" : "#C99597", color: "white", padding: "5px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", borderBottom: modoEditor==='code'?"1px solid #252526":"2px solid #A67577"}}>
+                {/* EDITOR (HÍBRIDO) MULTIPLE */}
+                {editoresAbiertos.map(editor => (
+                    <div key={editor.id} style={{display: ventanaActiva === editor.id ? 'flex' : 'none', position:"absolute", top:0, left:0, width:"100%", height:"100%", background: editor.modo === 'code' ? "#1e1e1e" : "#fff", color: editor.modo === 'code' ? "#d4d4d4" : "#000", zIndex:200, flexDirection:"column", border: editor.modo === 'txt' ? "10px solid #C99597" : "none"}}>
+                         <div style={{background: editor.modo === 'code' ? "#3c3c3c" : "#C99597", color: "white", padding: "5px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", borderBottom: editor.modo==='code'?"1px solid #252526":"2px solid #A67577"}}>
                             <div style={{display:"flex", alignItems:"center", gap:"10px"}}>
-                                <span style={{fontWeight:"bold"}}>{modoEditor === 'code' ? '💻 Visual Studio' : '📝 Bloc de Notas XP'} - {archivoEditando.name}</span>
+                                <span style={{fontWeight:"bold"}}>{editor.modo === 'code' ? '💻 Visual Studio' : '📝 Bloc de Notas XP'} - {editor.file.name}</span>
                             </div>
                             <div style={{display:"flex", gap:"5px"}}>
                                 <button onClick={()=>setVentanaActiva('escritorio')} style={xpWinControl}>_</button>
-                                <button onClick={()=>{setArchivoEditando(null); setVentanaActiva('escritorio')}} style={{...xpWinControl, background:"#ff4444", color:"white"}}>X</button>
+                                <button onClick={()=>{setEditoresAbiertos(prev => prev.filter(e => e.id !== editor.id)); if(ventanaActiva === editor.id) setVentanaActiva('escritorio');}} style={{...xpWinControl, background:"#ff4444", color:"white"}}>X</button>
                             </div>
                         </div>
-                        <div style={{padding:"5px", background: modoEditor === 'code' ? "#007acc" : "#f0f0f0", borderBottom:"1px solid #ccc", display:"flex", justifyContent:"flex-end"}}>
-                            <button onClick={()=>guardarCambiosEditor()} style={{...xpButton, background: modoEditor === 'code' ? "transparent" : "#faf6f4", color: modoEditor === 'code' ? "white" : "#C99597", border: modoEditor==='code'?"1px solid white":"1px outset #DDB2B5"}}>💾 GUARDAR</button>
+                        <div style={{padding:"5px", background: editor.modo === 'code' ? "#007acc" : "#f0f0f0", borderBottom:"1px solid #ccc", display:"flex", justifyContent:"flex-end"}}>
+                            <button onClick={()=>guardarCambiosEditor(editor.id)} style={{...xpButton, background: editor.modo === 'code' ? "transparent" : "#faf6f4", color: editor.modo === 'code' ? "white" : "#C99597", border: editor.modo==='code'?"1px solid white":"1px outset #DDB2B5"}}>💾 GUARDAR</button>
                         </div>
                         
                         <div style={{flex:1, overflow:"hidden", position:"relative"}}>
-                            {modoEditor === 'code' ? (
-                                <Editor
-                                    height="100%"
-                                    defaultLanguage="javascript"
-                                    language={detectingLenguaje(archivoEditando.name)}
-                                    theme="vs-dark"
-                                    value={contenidoEditor}
-                                    onChange={(value) => setContenidoEditor(value)}
-                                    loading={<div style={{color:"white", padding:"20px"}}>Cargando editor...</div>}
-                                    options={{ minimap: { enabled: true }, fontSize: 14, wordWrap: 'on', automaticLayout: true }}
-                                />
+                            {editor.modo === 'code' ? (
+                                <Editor height="100%" defaultLanguage="javascript" language={detectingLenguaje(editor.file.name)} theme="vs-dark" value={editor.content} onChange={(value) => actualizarContenido(editor.id, value)} loading={<div style={{color:"white", padding:"20px"}}>Cargando editor...</div>} options={{ minimap: { enabled: true }, fontSize: 14, wordWrap: 'on', automaticLayout: true }} />
                             ) : (
-                                <textarea 
-                                    value={contenidoEditor} 
-                                    onChange={(e) => setContenidoEditor(e.target.value)} 
-                                    onKeyDown={handleTabKeySimple}
-                                    style={{width:"100%", height:"100%", background: "#fff", color: "#000", border:"none", padding:"20px", fontFamily: "'Mali', cursive", fontSize:"14px", outline:"none", resize:"none", boxSizing:"border-box"}}
-                                    spellCheck="false"
-                                />
+                                <textarea value={editor.content} onChange={(e) => actualizarContenido(editor.id, e.target.value)} onKeyDown={(e) => handleTabKeyMultiple(e, editor.id)} style={{width:"100%", height:"100%", background: "#fff", color: "#000", border:"none", padding:"20px", fontFamily: "'Mali', cursive", fontSize:"14px", outline:"none", resize:"none", boxSizing:"border-box"}} spellCheck="false" />
                             )}
                         </div>
                     </div>
-                )}
+                ))}
             </div>
 
             <div style={xpBottomTaskbar}>
                 <button onClick={()=>{setVentanaActiva('escritorio')}} style={{...xpTaskButton, background: (ventanaActiva === 'escritorio') ? '#E3C0C2' : '#FAF6F4', fontWeight: "bold", borderRight:"2px solid #A67577", width:"100px"}}>📁 INICIO</button>
                 <div style={{display:"flex", gap:"5px", overflowX:"auto", flex:1, paddingLeft:"10px"}}>
                     {ventanasAbiertas.map(ventana => (<button key={ventana.id} onClick={()=>{setVentanaActiva(ventana.id)}} style={{...xpTaskButton, background: ventanaActiva === ventana.id ? '#E3C0C2' : '#FAF6F4', width: "150px"}} title={ventana.title}>📄 {ventana.title}</button>))}
-                    {archivoEditando && ventanaActiva === 'PDF_VIEWER' && (
-                        <button onClick={()=>setVentanaActiva('PDF_VIEWER')} style={{...xpTaskButton, background: ventanaActiva==='PDF_VIEWER' ?'#E3C0C2':'#fff', width: "150px"}}>📄 PDF {archivoEditando.name}</button>
-                    )}
-                    {archivoEditando && ventanaActiva === 'EDITOR' && (
-                        <button onClick={()=>setVentanaActiva('EDITOR')} style={{...xpTaskButton, background: ventanaActiva==='EDITOR' ? (modoEditor==='code'?'#007acc':'#E3C0C2') : '#fff', color: (ventanaActiva==='EDITOR' && modoEditor==='code')?'white':'black', border: "1px solid #000", width: "150px"}}>{modoEditor==='code'?'💻':'📝'} {archivoEditando.name}</button>
-                    )}
+                    {pdfsAbiertos.map(pdf => (
+                        <button key={`btn-pdf-${pdf.id}`} onClick={()=>setVentanaActiva(pdf.id)} style={{...xpTaskButton, background: ventanaActiva===pdf.id ?'#E3C0C2':'#fff', width: "150px"}}>📄 PDF {pdf.file.name}</button>
+                    ))}
+                    {editoresAbiertos.map(editor => (
+                        <button key={`btn-ed-${editor.id}`} onClick={()=>setVentanaActiva(editor.id)} style={{...xpTaskButton, background: ventanaActiva===editor.id ? (editor.modo==='code'?'#007acc':'#E3C0C2') : '#fff', color: (ventanaActiva===editor.id && editor.modo==='code')?'white':'black', border: "1px solid #000", width: "150px"}}>{editor.modo==='code'?'💻':'📝'} {editor.file.name}</button>
+                    ))}
                 </div>
             </div>
           </div>
