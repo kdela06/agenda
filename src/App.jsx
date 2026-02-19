@@ -909,15 +909,16 @@ function AgendaWorkspace() {
                     {verCalendario && (
                         <div style={{width:"400px", minWidth:"300px", display:"flex", flexDirection:"column", background:"#fff"}} className="agenda-column">
                             {/* ... (CALENDARIO CODE) ... */}
-                            <div style={{display:"flex", justifyContent:"flex-end", padding:"5px", background:"#FAF6F4"}}>
-                                <button onClick={()=>setVerCalendario(false)} style={{cursor:"pointer", border:"none", background:"transparent", color:"#C99597"}}>Ocultar ◀</button>
-                            </div>
-
                             <div style={xpWindowHeader}>
-                                📅 Agenda Google
-                                <button onClick={()=>setMostrarFormularioCal(!mostrarFormularioCal)} style={{...xpBtnSmall, marginLeft:"10px", color:"black"}}>
-                                    {mostrarFormularioCal ? '➖ Cancelar' : '➕ Añadir Evento'}
-                                </button>
+                                <span>📅 Calendario Google</span>
+                                <div style={{display: "flex", alignItems: "center", gap: "8px"}}>
+                                    <button onClick={()=>setMostrarFormularioCal(!mostrarFormularioCal)} style={{...xpBtnSmall, color:"black"}}>
+                                        {mostrarFormularioCal ? '➖ Cancelar' : '➕ Añadir Evento'}
+                                    </button>
+                                    <button onClick={()=>setVerCalendario(false)} style={{cursor:"pointer", border:"1px solid rgba(255,255,255,0.5)", background:"rgba(255,255,255,0.2)", color:"white", padding:"2px 8px", borderRadius:"3px", fontSize:"12px", fontWeight:"bold", fontFamily:"'Mali', cursive"}}>
+                                        Ocultar ▶
+                                    </button>
+                                </div>
                             </div>
                             
                             {mostrarFormularioCal && (
