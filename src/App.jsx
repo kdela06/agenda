@@ -95,10 +95,11 @@ function AgendaWorkspace() {
   const [hora, setHora] = useState(new Date().toLocaleTimeString());
 
   // Widgets Data
-  const [tareas, setTareas] = useState(JSON.parse(localStorage.getItem("widget_tareas")) || []);
-  const [examenes, setExamenes] = useState(JSON.parse(localStorage.getItem("widget_examenes")) || []);
-  const [entregas, setEntregas] = useState(JSON.parse(localStorage.getItem("widget_entregas")) || []);
-  const [cuentasAtras, setCuentasAtras] = useState(JSON.parse(localStorage.getItem("widget_cuentas")) || []);
+  const [widgetsFileId, setWidgetsFileId] = useState(null);
+  const [tareas, setTareas] = useState([]);
+  const [examenes, setExamenes] = useState([]);
+  const [entregas, setEntregas] = useState([]);
+  const [cuentasAtras, setCuentasAtras] = useState([]);
   
   const [nuevaTarea, setNuevaTarea] = useState("");
   const [nuevoExamen, setNuevoExamen] = useState(""); const [fechaExamen, setFechaExamen] = useState("");
@@ -127,11 +128,6 @@ function AgendaWorkspace() {
         cargarYConstruirCalendario(tokenParsed);
     }
   }, []);
-
-  useEffect(() => localStorage.setItem("widget_tareas", JSON.stringify(tareas)), [tareas]);
-  useEffect(() => localStorage.setItem("widget_examenes", JSON.stringify(examenes)), [examenes]);
-  useEffect(() => localStorage.setItem("widget_entregas", JSON.stringify(entregas)), [entregas]);
-  useEffect(() => localStorage.setItem("widget_cuentas", JSON.stringify(cuentasAtras)), [cuentasAtras]);
 
   // Pomodoro
   useEffect(() => {
@@ -191,6 +187,7 @@ function AgendaWorkspace() {
         if (res.data.files && res.data.files.length > 0) { miAgendaId = res.data.files[0].id; } 
         else { const createRes = await axios.post('https://www.googleapis.com/drive/v3/files', { name: 'mi_agenda', mimeType: 'application/vnd.google-apps.folder' }, { headers: { Authorization: `Bearer ${accessToken}` } }); miAgendaId = createRes.data.id; }
         setRootId(miAgendaId); setCarpetaActual({ id: miAgendaId, name: 'mi_agenda' });
+        cargarWidgetsDeDrive(accessToken, miAgendaId);
       } catch (err) { 
           if(err.response && err.response.status === 401) cerrarSesion();
       }
@@ -314,7 +311,7 @@ function AgendaWorkspace() {
 
   // --- DRIVE BASICO ---
   const cargarContenidoDrive = (tokenActual, folderId) => {
-    const query = `'${folderId}' in parents and trashed = false and name != '_notes_config.json'`;
+    const query = `'${folderId}' in parents and trashed = false and name != '_notes_config.json' and name != '_widgets_config.json'`;
     axios.get('https://www.googleapis.com/drive/v3/files', { headers: { Authorization: `Bearer ${tokenActual}` }, params: { q: query, fields: 'files(id, name, mimeType, webViewLink, iconLink)', pageSize: 100 } })
       .then(response => { 
           const todos = response.data.files || []; 
@@ -492,12 +489,58 @@ function AgendaWorkspace() {
 
   const agregarNota = () => { if (!nuevaNotaTexto) return; const nuevas = [...notasActuales, { id: Date.now(), text: nuevaNotaTexto }]; setNotasActuales(nuevas); guardarNotasEnDrive(nuevas); setNuevaNotaTexto(""); };
   const borrarNota = (id) => { const nuevas = notasActuales.filter(n => n.id !== id); setNotasActuales(nuevas); guardarNotasEnDrive(nuevas); };
+  
+  // --- WIDGETS (SYNC NUBE) ---
+  const cargarWidgetsDeDrive = async (tokenActual, folderRaizId) => {
+      try {
+          const res = await axios.get('https://www.googleapis.com/drive/v3/files', { headers: { Authorization: `Bearer ${tokenActual}` }, params: { q: `name = '_widgets_config.json' and '${folderRaizId}' in parents and trashed = false` } });
+          if (res.data.files && res.data.files.length > 0) {
+              const fileId = res.data.files[0].id;
+              setWidgetsFileId(fileId);
+              const contentRes = await axios.get(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${tokenActual}` } });
+              const data = contentRes.data || {};
+              if(data.tareas) setTareas(data.tareas);
+              if(data.examenes) setExamenes(data.examenes);
+              if(data.entregas) setEntregas(data.entregas);
+              if(data.cuentasAtras) setCuentasAtras(data.cuentasAtras);
+          }
+      } catch (err) { console.error("Error cargando widgets", err); }
+  };
 
+  const guardarWidgetsEnDrive = async (nuevosDatos) => {
+      const datosGuardar = {
+          tareas: nuevosDatos.tareas !== undefined ? nuevosDatos.tareas : tareas,
+          examenes: nuevosDatos.examenes !== undefined ? nuevosDatos.examenes : examenes,
+          entregas: nuevosDatos.entregas !== undefined ? nuevosDatos.entregas : entregas,
+          cuentasAtras: nuevosDatos.cuentasAtras !== undefined ? nuevosDatos.cuentasAtras : cuentasAtras
+      };
+      try {
+          const blob = new Blob([JSON.stringify(datosGuardar)], { type: 'application/json' });
+          if (widgetsFileId) {
+              await axios.patch(`https://www.googleapis.com/upload/drive/v3/files/${widgetsFileId}?uploadType=media`, blob, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+          } else {
+              if(!rootId) return;
+              const metadata = { name: '_widgets_config.json', parents: [rootId], mimeType: 'application/json' };
+              const formData = new FormData();
+              formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+              formData.append('file', blob);
+              const res = await axios.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', formData, { headers: { Authorization: `Bearer ${token}` } });
+              setWidgetsFileId(res.data.id);
+          }
+      } catch (err) { console.error("Error guardando widgets", err); }
+  };
   // --- WIDGETS ---
-  const addTarea = () => { if(nuevaTarea) { setTareas([...tareas, {id: Date.now(), txt: nuevaTarea}]); setNuevaTarea(""); }}; const delTarea = (id) => setTareas(tareas.filter(t => t.id !== id));
-  const addExamen = () => { if(nuevoExamen && fechaExamen) { setExamenes([...examenes, {id: Date.now(), txt: nuevoExamen, fecha: fechaExamen}]); setNuevoExamen(""); }}; const delExamen = (id) => setExamenes(examenes.filter(t => t.id !== id));
-  const addEntrega = () => { if(nuevaEntrega && fechaEntrega) { setEntregas([...entregas, {id: Date.now(), txt: nuevaEntrega, fecha: fechaEntrega}]); setNuevaEntrega(""); }}; const delEntrega = (id) => setEntregas(entregas.filter(t => t.id !== id));
-  const addCuenta = () => { if(tituloCuenta && fechaCuenta) { setCuentasAtras([...cuentasAtras, {id: Date.now(), txt: tituloCuenta, fecha: fechaCuenta}]); setTituloCuenta(""); }}; const delCuenta = (id) => setCuentasAtras(cuentasAtras.filter(t => t.id !== id));
+  const addTarea = () => { if(nuevaTarea) { const n = [...tareas, {id: Date.now(), txt: nuevaTarea}]; setTareas(n); guardarWidgetsEnDrive({tareas: n}); setNuevaTarea(""); }}; 
+  const delTarea = (id) => { const n = tareas.filter(t => t.id !== id); setTareas(n); guardarWidgetsEnDrive({tareas: n}); };
+  
+  const addExamen = () => { if(nuevoExamen && fechaExamen) { const n = [...examenes, {id: Date.now(), txt: nuevoExamen, fecha: fechaExamen}]; setExamenes(n); guardarWidgetsEnDrive({examenes: n}); setNuevoExamen(""); }}; 
+  const delExamen = (id) => { const n = examenes.filter(t => t.id !== id); setExamenes(n); guardarWidgetsEnDrive({examenes: n}); };
+  
+  const addEntrega = () => { if(nuevaEntrega && fechaEntrega) { const n = [...entregas, {id: Date.now(), txt: nuevaEntrega, fecha: fechaEntrega}]; setEntregas(n); guardarWidgetsEnDrive({entregas: n}); setNuevaEntrega(""); }}; 
+  const delEntrega = (id) => { const n = entregas.filter(t => t.id !== id); setEntregas(n); guardarWidgetsEnDrive({entregas: n}); };
+  
+  const addCuenta = () => { if(tituloCuenta && fechaCuenta) { const n = [...cuentasAtras, {id: Date.now(), txt: tituloCuenta, fecha: fechaCuenta}]; setCuentasAtras(n); guardarWidgetsEnDrive({cuentasAtras: n}); setTituloCuenta(""); }}; 
+  const delCuenta = (id) => { const n = cuentasAtras.filter(t => t.id !== id); setCuentasAtras(n); guardarWidgetsEnDrive({cuentasAtras: n}); };
   const calcDias = (f) => Math.ceil((new Date(f) - new Date()) / (1000 * 60 * 60 * 24));
   const formatTime = (seconds) => { const m = Math.floor(seconds / 60); const s = seconds % 60; return `${m}:${s < 10 ? '0' : ''}${s}`; };
 
