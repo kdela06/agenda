@@ -24,8 +24,8 @@ function App() {
 
   if (!CLIENT_ID || CLIENT_ID === "") {
     return (
-      <div style={{padding: "40px", textAlign: "center", background: "#F1D8D9", height: "100vh"}}>
-        <h2 style={{color: "#C99597"}}>⚠️ Error de Configuración</h2>
+      <div style={{padding: "40px", textAlign: "center", background: "var(--c1)", height: "100vh"}}>
+        <h2 style={{color: "var(--c2)"}}>⚠️ Error de Configuración</h2>
         <p>Vite no detecta tu archivo <b>.env</b></p>
       </div>
     );
@@ -43,6 +43,17 @@ function AgendaWorkspace() {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [nombreUsuario, setNombreUsuario] = useState(localStorage.getItem("nombre_personalizado") || "Admin");
+
+  // --- TEMAS Y ESTILOS ---
+  const PALETAS = {
+    rosa: { c1: "#F1D8D9", c2: "#C99597", c3: "#DDB2B5", c4: "#A67577", c5: "#FAF6F4", c6: "#EAD4D5", c7: "#E3C0C2", c8: "#F7E8E8" },
+    verde: { c1: "#E2E4CE", c2: "#B7B585", c3: "#C5C48E", c4: "#898863", c5: "#FDFDF5", c6: "#DDDDBB", c7: "#D1D0A0", c8: "#EBEBD8" },
+    beige: { c1: "#F3EEE8", c2: "#AF8C72", c3: "#D5C0B0", c4: "#8C705F", c5: "#FCFAF8", c6: "#EBE3DB", c7: "#E3D0C1", c8: "#F7F2ED" },
+    cafe: { c1: "#EAE0DA", c2: "#967E76", c3: "#B7A9A3", c4: "#6B5750", c5: "#F8F5F3", c6: "#DFD3CE", c7: "#D1C1BB", c8: "#EFEAE8" }
+  };
+  const [temaActivo, setTemaActivo] = useState(localStorage.getItem('agenda_tema') || 'rosa');
+
+  useEffect(() => { localStorage.setItem('agenda_tema', temaActivo); }, [temaActivo]);
   
   // --- POMODORO ---
   const [pomoMinutes, setPomoMinutes] = useState(25);
@@ -586,7 +597,7 @@ function AgendaWorkspace() {
           background: baseBackground,
           flexDirection: "column",
           zIndex: estaEnfocada ? 205 : (esVisible ? 200 : 50),
-          border: estaEnfocada ? "3px solid #C99597" : "none", // ¡Borde negro eliminado!
+          border: estaEnfocada ? "3px solid var(--c2)" : "none", // ¡Borde negro eliminado!
           boxSizing: "border-box",
           boxShadow: esDer ? "-5px 0 15px rgba(0,0,0,0.2)" : "none"
       };
@@ -772,7 +783,7 @@ function AgendaWorkspace() {
   const formatTime = (seconds) => { const m = Math.floor(seconds / 60); const s = seconds % 60; return `${m}:${s < 10 ? '0' : ''}${s}`; };
 
   return (
-      <div style={xpFullPage}>
+      <div style={{ ...xpFullPage, '--c1': PALETAS[temaActivo].c1, '--c2': PALETAS[temaActivo].c2, '--c3': PALETAS[temaActivo].c3, '--c4': PALETAS[temaActivo].c4, '--c5': PALETAS[temaActivo].c5, '--c6': PALETAS[temaActivo].c6, '--c7': PALETAS[temaActivo].c7, '--c8': PALETAS[temaActivo].c8 }}>
         <style>
           {`@import url('https://fonts.googleapis.com/css2?family=Mali:wght@400;700&family=Roboto+Mono:wght@400;700&display=swap');`}
         </style>
@@ -781,6 +792,18 @@ function AgendaWorkspace() {
           <div style={{display:"flex", alignItems:"center", gap:"15px"}}>
               <div style={{fontWeight:"bold", fontSize:"15px"}}>{nombreUsuario}</div>
               <div style={{display:"flex", alignItems:"center", gap:"5px", background:"rgba(255,255,255,0.2)", padding:"2px 8px", borderRadius:"10px"}}>
+                  {/* Selector de Tema */}
+                  <select value={temaActivo} onChange={(e)=>setTemaActivo(e.target.value)} style={{background:"transparent", border:"1px solid rgba(255,255,255,0.5)", color:"white", borderRadius:"3px", fontSize:"12px", outline:"none", cursor:"pointer", padding:"2px", fontFamily:"'Mali', cursive"}}>
+                      <option value="rosa" style={{color:"black"}}>🌸</option>
+                      <option value="verde" style={{color:"black"}}>🌿</option>
+                      <option value="beige" style={{color:"black"}}>🥥</option>
+                      <option value="cafe" style={{color:"black"}}>☕</option>
+                  </select>
+                  
+                  {/* Separador vertical */}
+                  <div style={{borderLeft:"1px solid rgba(255,255,255,0.4)", height:"18px", margin:"0 5px"}}></div>
+
+                  {/* Pomodoro */}
                   {!pomoEditando ? (
                       <>
                         <span style={{fontSize:"15px", fontWeight:"bold"}}>🍅 {formatTime(pomoTime)}</span>
@@ -815,16 +838,16 @@ function AgendaWorkspace() {
                     
                     {/* IZQ: WIDGETS */}
                     {verWidgets && (
-                        <div style={{width:"250px", minWidth:"250px", borderRight:"3px solid #C99597", background:"#EAD4D5", padding:"10px", display:"flex", flexDirection:"column", overflowY:"auto"}} className="agenda-column">
+                        <div style={{width:"250px", minWidth:"250px", borderRight:"3px solid var(--c2)", background:"var(--c6)", padding:"10px", display:"flex", flexDirection:"column", overflowY:"auto"}} className="agenda-column">
                             {/* ... (WIDGETS CODE) ... */}
                             <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"10px"}}>
-                                <span style={{fontWeight:"bold", color:"#C99597"}}>Widgets</span>
-                                <button onClick={()=>setVerWidgets(false)} style={{cursor:"pointer", border:"none", background:"transparent", color:"#C99597"}}>Efec. ◀</button>
+                                <span style={{fontWeight:"bold", color:"var(--c2)"}}>Widgets</span>
+                                <button onClick={()=>setVerWidgets(false)} style={{cursor:"pointer", border:"none", background:"transparent", color:"var(--c2)"}}>Efec. ◀</button>
                             </div>
                             <div style={{flex: 1}}>
                                 <div style={xpSidebarSection}><div style={xpSidebarHeader}>📝 Tareas</div><div style={xpWidgetContent}>{tareas.map(t=>(<div key={t.id} style={{display:"flex",justifyContent:"space-between"}}><span>▫ {t.txt}</span><span onClick={()=>delTarea(t.id)} style={{color:"red",cursor:"pointer"}}>x</span></div>))}<div style={{display:"flex", marginTop:"3px"}}><input value={nuevaTarea} onChange={e=>setNuevaTarea(e.target.value)} style={xpInputSmall}/><button onClick={addTarea} style={xpBtnSmall}>+</button></div></div></div>
                                 <div style={xpSidebarSection}><div style={xpSidebarHeader}>📦 Entregas</div><div style={xpWidgetContent}>{entregas.map(t=>(<div key={t.id}>❗ {t.txt} ({t.fecha}) <span onClick={()=>delEntrega(t.id)} style={{color:"red",cursor:"pointer"}}>x</span></div>))}<div style={{marginTop:"3px"}}><input value={nuevaEntrega} onChange={e=>setNuevaEntrega(e.target.value)} placeholder="Práctica" style={xpInputSmall}/><input type="date" value={fechaEntrega} onChange={e=>setFechaEntrega(e.target.value)} style={xpInputSmall}/><button onClick={addEntrega} style={{...xpBtnSmall,width:"100%"}}>Añadir</button></div></div></div>
-                                <div style={xpSidebarSection}><div style={xpSidebarHeader}>⏳ Cuentas Atrás</div><div style={xpWidgetContent}>{cuentasAtras.map(c=>(<div key={c.id} style={{background:"#fff", border:"1px solid #eee", textAlign:"center", marginBottom:"2px"}}><div style={{fontSize:"11px"}}>{c.txt}</div><div style={{color:"#C99597",fontWeight:"bold"}}>{calcDias(c.fecha)} días</div><div onClick={()=>delCuenta(c.id)} style={{fontSize:"10px",cursor:"pointer"}}>borrar</div></div>))}<div style={{marginTop:"3px"}}><input value={tituloCuenta} onChange={e=>setTituloCuenta(e.target.value)} placeholder="Evento" style={xpInputSmall}/><input type="date" value={fechaCuenta} onChange={e=>setFechaCuenta(e.target.value)} style={xpInputSmall}/><button onClick={addCuenta} style={{...xpBtnSmall,width:"100%"}}>Crear</button></div></div></div>
+                                <div style={xpSidebarSection}><div style={xpSidebarHeader}>⏳ Cuentas Atrás</div><div style={xpWidgetContent}>{cuentasAtras.map(c=>(<div key={c.id} style={{background:"#fff", border:"1px solid #eee", textAlign:"center", marginBottom:"2px"}}><div style={{fontSize:"11px"}}>{c.txt}</div><div style={{color:"var(--c2)",fontWeight:"bold"}}>{calcDias(c.fecha)} días</div><div onClick={()=>delCuenta(c.id)} style={{fontSize:"10px",cursor:"pointer"}}>borrar</div></div>))}<div style={{marginTop:"3px"}}><input value={tituloCuenta} onChange={e=>setTituloCuenta(e.target.value)} placeholder="Evento" style={xpInputSmall}/><input type="date" value={fechaCuenta} onChange={e=>setFechaCuenta(e.target.value)} style={xpInputSmall}/><button onClick={addCuenta} style={{...xpBtnSmall,width:"100%"}}>Crear</button></div></div></div>
                                 <div style={xpSidebarSection}><div style={xpSidebarHeader}>🎓 Exámenes</div><div style={xpWidgetContent}>{examenes.map(t=>(<div key={t.id} style={{borderBottom:"1px dashed #ccc"}}><b>{t.txt}</b> ({t.fecha}) <span onClick={()=>delExamen(t.id)} style={{color:"red",cursor:"pointer"}}>x</span></div>))}<div style={{marginTop:"3px"}}><input value={nuevoExamen} onChange={e=>setNuevoExamen(e.target.value)} placeholder="Asignatura" style={xpInputSmall}/><input type="date" value={fechaExamen} onChange={e=>setFechaExamen(e.target.value)} style={xpInputSmall}/><button onClick={addExamen} style={{...xpBtnSmall,width:"100%"}}>Añadir</button></div></div></div>
                             </div>
                             <div style={{marginTop: "20px"}}>
@@ -836,9 +859,9 @@ function AgendaWorkspace() {
                     )}
 
                     {/* CENTRO: EXPLORADOR */}
-                    <div style={{flex: 1, minWidth:"300px", display:"flex", flexDirection:"column", borderRight:"3px solid #C99597", background:"white"}} className="agenda-column">
+                    <div style={{flex: 1, minWidth:"300px", display:"flex", flexDirection:"column", borderRight:"3px solid var(--c2)", background:"white"}} className="agenda-column">
                         
-                        <div style={{display:"flex", background:"#FAF6F4", borderBottom:"1px solid #ccc"}}>
+                        <div style={{display:"flex", background:"var(--c5)", borderBottom:"1px solid #ccc"}}>
                              {!verWidgets && <button onClick={()=>setVerWidgets(true)} style={{border:"none", background:"transparent", cursor:"pointer", fontSize:"12px", padding:"5px"}}>▶ Mostrar Widgets</button>}
                              <div style={{flex:1}}></div>
                              {!verCalendario && <button onClick={()=>setVerCalendario(true)} style={{border:"none", background:"transparent", cursor:"pointer", fontSize:"12px", padding:"5px"}}>◀ Mostrar Calendario</button>}
@@ -846,13 +869,13 @@ function AgendaWorkspace() {
 
                         {carpetaActual?.id !== 'TRASH' ? (
                             <>
-                                <div style={{padding:"8px", borderBottom:"1px solid #DDB2B5", background:"#FAF6F4", display:"flex", gap:"10px", alignItems:"center"}}>
+                                <div style={{padding:"8px", borderBottom:"1px solid var(--c3)", background:"var(--c5)", display:"flex", gap:"10px", alignItems:"center"}}>
                                     <button onClick={subirNivel} disabled={!carpetaActual || carpetaActual.id === rootId} style={xpUpButton}>⬆ Subir</button>
                                     <div style={xpAddressInput}>C:\{nombreUsuario}\{carpetaActual ? carpetaActual.name : "..."}</div>
                                 </div>
                                 <div style={xpActionBar} className="agenda-action-bar">
                                     <div style={{position:"relative"}}>
-                                        <button onClick={()=>setMenuCrearAbierto(!menuCrearAbierto)} style={{...xpButton, background:"#C99597", color:"white"}}>⭐ Nuevo... ▼</button>
+                                        <button onClick={()=>setMenuCrearAbierto(!menuCrearAbierto)} style={{...xpButton, background:"var(--c2)", color:"white"}}>⭐ Nuevo... ▼</button>
                                         {menuCrearAbierto && (
                                             <div style={xpDropdownMenu}>
                                                 <div onClick={()=>crearArchivo('folder')} style={xpDropdownItem}>📁 Carpeta</div>
@@ -870,7 +893,7 @@ function AgendaWorkspace() {
 
                                     {/* BARRA DE ACCIÓN INTELIGENTE */}
                                     {seleccionados.length > 0 ? (
-                                        <div style={{display:"flex", gap:"10px", marginLeft:"10px", alignItems:"center", background:"#E3C0C2", padding:"2px 10px", borderRadius:"4px", flex:1}}>
+                                        <div style={{display:"flex", gap:"10px", marginLeft:"10px", alignItems:"center", background:"var(--c7)", padding:"2px 10px", borderRadius:"4px", flex:1}}>
                                             <span style={{fontWeight:"bold", fontSize:"12px", color: "white"}}>
                                                 {seleccionados.length === 1 ? `Seleccionado: ${seleccionados[0].name}` : `${seleccionados.length} seleccionados`}
                                             </span>
@@ -888,7 +911,7 @@ function AgendaWorkspace() {
                                             
                                             {portapapeles && (
                                                 <div style={{marginLeft:"auto", display:"flex", alignItems:"center", gap:"5px"}}>
-                                                    <span style={{fontSize:"12px", color:"#C99597"}}>En portapapeles: {portapapeles.length} item(s)</span>
+                                                    <span style={{fontSize:"12px", color:"var(--c2)"}}>En portapapeles: {portapapeles.length} item(s)</span>
                                                     <button onClick={ejecutarPegar} style={{...xpButton, background:"#e6ffed", color:"#2E7D32", border:"1px outset #A5D6A7"}}>📋 Pegar Aquí</button>
                                                     <button onClick={()=>setPortapapeles(null)} style={{...xpButton, color:"red", padding:"2px 6px"}}>x</button>
                                                 </div>
@@ -967,8 +990,8 @@ function AgendaWorkspace() {
                             </div>
                             
                             {mostrarFormularioCal && (
-                                <div style={{padding:"10px", background:"#F7E8E8", borderBottom:"1px solid #C99597"}}>
-                                    <div style={{fontSize:"12px", fontWeight:"bold", color:"#C99597", marginBottom:"5px"}}>Nuevo Evento:</div>
+                                <div style={{padding:"10px", background:"var(--c8)", borderBottom:"1px solid var(--c2)"}}>
+                                    <div style={{fontSize:"12px", fontWeight:"bold", color:"var(--c2)", marginBottom:"5px"}}>Nuevo Evento:</div>
                                     <input value={evtTitulo} onChange={e=>setEvtTitulo(e.target.value)} placeholder="Título" style={{...xpInputSmall, marginBottom:"5px"}}/>
                                     
                                     <div style={{marginBottom:"5px"}}>
@@ -991,7 +1014,7 @@ function AgendaWorkspace() {
                                             <input type="time" value={evtHoraFin} onChange={e=>setEvtHoraFin(e.target.value)} style={xpInputSmall}/>
                                         </div>
                                     </div>
-                                    <button onClick={crearEvento} style={{...xpBtnSmall, width:"100%", background:"#C99597", color:"white"}}>Crear</button>
+                                    <button onClick={crearEvento} style={{...xpBtnSmall, width:"100%", background:"var(--c2)", color:"white"}}>Crear</button>
                                 </div>
                             )}
 
@@ -1002,7 +1025,7 @@ function AgendaWorkspace() {
 
                 {/* VENTANAS FLOTANTES */}
                 {ventanasAbiertas.map((ventana) => (
-                    <div key={ventana.id} style={calcularEstiloVentana(ventana.id, "#F1D8D9")} onMouseDown={() => { if(pantallaDividida) setFocoDividido(ventanaDerecha === ventana.id ? 'der' : 'izq'); }}>
+                    <div key={ventana.id} style={calcularEstiloVentana(ventana.id, "var(--c1)")} onMouseDown={() => { if(pantallaDividida) setFocoDividido(ventanaDerecha === ventana.id ? 'der' : 'izq'); }}>
                         <div style={xpWindowHeader}>
                             <span>👁 {ventana.title}</span>
                             <div style={{display:"flex", gap:"5px"}}>
@@ -1076,7 +1099,7 @@ function AgendaWorkspace() {
                                 <div style={{color:"white", padding:"20px"}}>{pdf.error}</div>
                             ) : pdf.blob ? (
                                 <Document file={pdf.blob} onLoadSuccess={({ numPages }) => actualizarPdf(pdf.id, { numPages, error: null })} onLoadError={(e) => actualizarPdf(pdf.id, { error: "Error al abrir PDF: " + e.message })} loading={<div style={{color:"white"}}>Cargando documento...</div>}>
-                                    <Page pageNumber={pdf.pageNumber} renderTextLayer={false} renderAnnotationLayer={false} width={Math.min(anchoVentana * 0.9, 800) * (pdf.zoom || 1)} />
+                                    <Page pageNumber={pdf.pageNumber} renderTextLayer={true} renderAnnotationLayer={false} width={Math.min(anchoVentana * 0.9, 800) * (pdf.zoom || 1)} />
                                 </Document>
                             ) : (<div style={{color:"white"}}>Descargando...</div>)}
                         </div>
@@ -1086,7 +1109,7 @@ function AgendaWorkspace() {
                 {/* EDITOR (HÍBRIDO) MULTIPLE */}
                 {editoresAbiertos.map(editor => (
                     <div key={editor.id} style={{...calcularEstiloVentana(editor.id, editor.modo === 'code' ? "#1e1e1e" : "#fff"), color: editor.modo === 'code' ? "#d4d4d4" : "#000"}} onMouseDown={() => { if(pantallaDividida) setFocoDividido(ventanaDerecha === editor.id ? 'der' : 'izq'); }}>
-                         <div style={{background: editor.modo === 'code' ? "#3c3c3c" : "#C99597", color: "white", padding: "5px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", borderBottom: editor.modo==='code'?"1px solid #252526":"2px solid #A67577"}}>
+                         <div style={{background: editor.modo === 'code' ? "#3c3c3c" : "var(--c2)", color: "white", padding: "5px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", borderBottom: editor.modo==='code'?"1px solid #252526":"2px solid var(--c4)"}}>
                             <div style={{display:"flex", alignItems:"center", gap:"10px"}}>
                                 <span style={{fontWeight:"bold"}}>{editor.modo === 'code' ? '💻 Visual Studio' : '📝 Bloc de Notas XP'} - {editor.file.name}</span>
                             </div>
@@ -1099,7 +1122,7 @@ function AgendaWorkspace() {
                             </div>
                         </div>
                         <div style={{padding:"5px", background: editor.modo === 'code' ? "#007acc" : "#f0f0f0", borderBottom:"1px solid #ccc", display:"flex", justifyContent:"flex-end"}}>
-                            <button onClick={()=>guardarCambiosEditor(editor.id)} style={{...xpButton, background: editor.modo === 'code' ? "transparent" : "#faf6f4", color: editor.modo === 'code' ? "white" : "#C99597", border: editor.modo==='code'?"1px solid white":"1px outset #DDB2B5"}}>💾 GUARDAR</button>
+                            <button onClick={()=>guardarCambiosEditor(editor.id)} style={{...xpButton, background: editor.modo === 'code' ? "transparent" : "var(--c5)", color: editor.modo === 'code' ? "white" : "var(--c2)", border: editor.modo==='code'?"1px solid white":"1px outset var(--c3)"}}>💾 GUARDAR</button>
                         </div>
                         
                         <div style={{flex:1, overflow:"hidden", position:"relative"}}>
@@ -1114,14 +1137,14 @@ function AgendaWorkspace() {
             </div>
 
             <div style={xpBottomTaskbar}>
-                <button onClick={() => enfocarVentana('escritorio')} style={{...xpTaskButton, background: (ventanaActiva === 'escritorio' && !pantallaDividida) ? '#E3C0C2' : '#FAF6F4', fontWeight: "bold", borderRight:"2px solid #A67577", width:"100px"}}>📁 INICIO</button>
+                <button onClick={() => enfocarVentana('escritorio')} style={{...xpTaskButton, background: (ventanaActiva === 'escritorio' && !pantallaDividida) ? 'var(--c7)' : 'var(--c5)', fontWeight: "bold", borderRight:"2px solid var(--c4)", width:"100px"}}>📁 INICIO</button>
                 <div style={{display:"flex", gap:"5px", overflowX:"auto", flex:1, paddingLeft:"10px"}}>
-                    {ventanasAbiertas.map(ventana => (<button key={ventana.id} onClick={()=>enfocarVentana(ventana.id)} style={{...xpTaskButton, background: (ventanaActiva === ventana.id || ventanaDerecha === ventana.id) ? '#E3C0C2' : '#FAF6F4', width: "150px"}} title={ventana.title}>📄 {ventana.title}</button>))}
+                    {ventanasAbiertas.map(ventana => (<button key={ventana.id} onClick={()=>enfocarVentana(ventana.id)} style={{...xpTaskButton, background: (ventanaActiva === ventana.id || ventanaDerecha === ventana.id) ? 'var(--c7)' : 'var(--c5)', width: "150px"}} title={ventana.title}>📄 {ventana.title}</button>))}
                     {pdfsAbiertos.map(pdf => (
-                        <button key={`btn-pdf-${pdf.id}`} onClick={()=>enfocarVentana(pdf.id)} style={{...xpTaskButton, background: (ventanaActiva===pdf.id || ventanaDerecha===pdf.id) ?'#E3C0C2':'#fff', width: "150px"}}>📄 PDF {pdf.file.name}</button>
+                        <button key={`btn-pdf-${pdf.id}`} onClick={()=>enfocarVentana(pdf.id)} style={{...xpTaskButton, background: (ventanaActiva===pdf.id || ventanaDerecha===pdf.id) ?'var(--c7)':'#fff', width: "150px"}}>📄 PDF {pdf.file.name}</button>
                     ))}
                     {editoresAbiertos.map(editor => (
-                        <button key={`btn-ed-${editor.id}`} onClick={()=>enfocarVentana(editor.id)} style={{...xpTaskButton, background: (ventanaActiva===editor.id || ventanaDerecha===editor.id) ? (editor.modo==='code'?'#007acc':'#E3C0C2') : '#fff', color: ((ventanaActiva===editor.id || ventanaDerecha===editor.id) && editor.modo==='code')?'white':'black', border: "1px solid #000", width: "150px"}}>{editor.modo==='code'?'💻':'📝'} {editor.file.name}</button>
+                        <button key={`btn-ed-${editor.id}`} onClick={()=>enfocarVentana(editor.id)} style={{...xpTaskButton, background: (ventanaActiva===editor.id || ventanaDerecha===editor.id) ? (editor.modo==='code'?'#007acc':'var(--c7)') : '#fff', color: ((ventanaActiva===editor.id || ventanaDerecha===editor.id) && editor.modo==='code')?'white':'black', border: "1px solid #000", width: "150px"}}>{editor.modo==='code'?'💻':'📝'} {editor.file.name}</button>
                     ))}
                 </div>
             </div>
@@ -1132,33 +1155,33 @@ function AgendaWorkspace() {
 }
 
 // ESTILOS
-const xpFullPage = { background: "#F1D8D9", height: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Mali', cursive", width: "100vw", position: "fixed", top:0, left:0 };
-const xpTopBar = { background: "#C99597", color: "white", padding: "4px 15px", display: "flex", justifyContent: "space-between", fontSize:"13px" };
-const xpBottomTaskbar = { height: "35px", background: "linear-gradient(to bottom, #DDB2B5 0%, #C99597 100%)", borderTop: "2px solid #F1D8D9", display: "flex", alignItems: "center", padding: "2px 5px" };
-const xpTaskButton = { height: "26px", border: "1px solid #A67577", borderRadius: "3px 3px 0 0", cursor: "pointer", fontSize: "13px", textAlign: "left", padding: "0 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#444", fontFamily: "'Mali', cursive" };
-const xpLoginWindow = { width: "350px", margin: "100px auto", background: "#FAF6F4", border: "3px solid #C99597", boxShadow: "5px 5px 0 rgba(0,0,0,0.1)" };
-const xpWindowTitle = { background: "#C99597", color: "white", padding: "5px", fontWeight: "bold", fontSize: "13px" };
+const xpFullPage = { background: "var(--c1)", height: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Mali', cursive", width: "100vw", position: "fixed", top:0, left:0 };
+const xpTopBar = { background: "var(--c2)", color: "white", padding: "4px 15px", display: "flex", justifyContent: "space-between", fontSize:"13px" };
+const xpBottomTaskbar = { height: "35px", background: "linear-gradient(to bottom, var(--c3) 0%, var(--c2) 100%)", borderTop: "2px solid var(--c1)", display: "flex", alignItems: "center", padding: "2px 5px" };
+const xpTaskButton = { height: "26px", border: "1px solid var(--c4)", borderRadius: "3px 3px 0 0", cursor: "pointer", fontSize: "13px", textAlign: "left", padding: "0 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#444", fontFamily: "'Mali', cursive" };
+const xpLoginWindow = { width: "350px", margin: "100px auto", background: "var(--c5)", border: "3px solid var(--c2)", boxShadow: "5px 5px 0 rgba(0,0,0,0.1)" };
+const xpWindowTitle = { background: "var(--c2)", color: "white", padding: "5px", fontWeight: "bold", fontSize: "13px" };
 const xpLink = { cursor:"pointer", textDecoration:"underline" };
-const xpSidebarSection = { background: "rgba(255,255,255,0.7)", borderRadius: "3px", border: "1px solid #C99597", overflow: "hidden", marginBottom:"10px" };
-const xpSidebarHeader = { background: "#FAF6F4", padding: "4px 8px", fontWeight: "bold", color: "#C99597", fontSize: "13px", borderBottom: "1px solid #E0E0E0" };
+const xpSidebarSection = { background: "rgba(255,255,255,0.7)", borderRadius: "3px", border: "1px solid var(--c2)", overflow: "hidden", marginBottom:"10px" };
+const xpSidebarHeader = { background: "var(--c5)", padding: "4px 8px", fontWeight: "bold", color: "var(--c2)", fontSize: "13px", borderBottom: "1px solid #E0E0E0" };
 const xpWidgetContent = { padding:"8px", fontSize:"13px", color:"#444" };
 const xpInputSmall = { width: "100%", marginBottom: "3px", border: "1px solid #ccc", padding: "2px", fontSize: "12px", boxSizing: "border-box", fontFamily: "'Mali', cursive" };
 const xpBtnSmall = { cursor: "pointer", background: "#fff", border: "1px solid #ccc", fontSize: "12px", padding: "2px 5px", fontFamily: "'Mali', cursive" };
-const xpAddressInput = { flex:1, border:"1px solid #DDB2B5", background:"white", padding:"3px 6px", fontSize:"13px", fontFamily: "'Mali', cursive" };
-const xpActionBar = { padding:"10px", background:"#F7E8E8", display:"flex", gap:"20px", alignItems: "center" };
-const xpInput = { flex:1, border:"1px solid #C99597", padding:"4px", fontSize:"13px", fontFamily: "'Mali', cursive" };
-const xpButton = { background: "#FAF6F4", border: "1px outset #DDB2B5", cursor: "pointer", fontSize:"13px", color:"#C99597", fontWeight:"bold", padding:"4px 12px", whiteSpace:"nowrap", fontFamily: "'Mali', cursive" };
+const xpAddressInput = { flex:1, border:"1px solid var(--c3)", background:"white", padding:"3px 6px", fontSize:"13px", fontFamily: "'Mali', cursive" };
+const xpActionBar = { padding:"10px", background:"var(--c8)", display:"flex", gap:"20px", alignItems: "center" };
+const xpInput = { flex:1, border:"1px solid var(--c2)", padding:"4px", fontSize:"13px", fontFamily: "'Mali', cursive" };
+const xpButton = { background: "var(--c5)", border: "1px outset var(--c3)", cursor: "pointer", fontSize:"13px", color:"var(--c2)", fontWeight:"bold", padding:"4px 12px", whiteSpace:"nowrap", fontFamily: "'Mali', cursive" };
 const xpUpButton = { background: "#F0F0F0", border: "1px outset #ccc", cursor: "pointer", fontSize:"13px", padding:"2px 8px", fontFamily: "'Mali', cursive" };
 const xpLoginButton = { background: "#EAEAEA", border: "2px outset white", cursor: "pointer", padding: "8px 20px", fontWeight:"bold", fontFamily: "'Mali', cursive" };
-const xpSectionTitle = { fontSize:"14px", fontWeight:"bold", color:"#C99597", borderBottom:"1px solid #F1D8D9", marginBottom:"10px", paddingBottom:"2px" };
-const xpFolderIcon = { width: "40px", height: "30px", background: "#DDB2B5", border: "1px solid #C99597", borderRadius: "2px", boxShadow:"2px 2px 0 rgba(0,0,0,0.1)", margin:"0 auto" };
-const xpFileIcon = { width: "30px", height: "40px", background: "#FAF6F4", border: "1px solid #DDB2B5", position:"relative", boxShadow:"1px 1px 0 rgba(0,0,0,0.1)", margin:"0 auto" };
-const xpFileCorner = { position:"absolute", top:0, right:0, width:0, height:0, borderTop:"10px solid #F1D8D9", borderLeft:"10px solid transparent" };
+const xpSectionTitle = { fontSize:"14px", fontWeight:"bold", color:"var(--c2)", borderBottom:"1px solid var(--c1)", marginBottom:"10px", paddingBottom:"2px" };
+const xpFolderIcon = { width: "40px", height: "30px", background: "var(--c3)", border: "1px solid var(--c2)", borderRadius: "2px", boxShadow:"2px 2px 0 rgba(0,0,0,0.1)", margin:"0 auto" };
+const xpFileIcon = { width: "30px", height: "40px", background: "var(--c5)", border: "1px solid var(--c3)", position:"relative", boxShadow:"1px 1px 0 rgba(0,0,0,0.1)", margin:"0 auto" };
+const xpFileCorner = { position:"absolute", top:0, right:0, width:0, height:0, borderTop:"10px solid var(--c1)", borderLeft:"10px solid transparent" };
 const xpIconContainer = { display:"flex", flexDirection:"column", alignItems:"center", width:"90px", padding:"5px", position:"relative" };
 const xpIconName = { fontSize:"12px", marginTop:"5px", textAlign:"center", wordBreak:"break-all", lineHeight:"1.2" };
-const xpStickyNote = { width: "120px", minHeight: "80px", background: "#FFF5E5", border: "1px solid #DDB2B5", padding: "8px", fontSize: "12px", position:"relative", boxShadow:"2px 2px 0 rgba(0,0,0,0.1)", fontFamily: "'Mali', cursive" };
-const xpDeleteNote = { position:"absolute", top:0, right:"3px", color:"#C99597", cursor:"pointer", fontWeight:"bold" };
-const xpWindowHeader = { background: "#C99597", color:"white", padding:"5px 10px", display:"flex", justifyContent:"space-between", alignItems:"center", fontWeight:"bold", fontSize:"13px", borderBottom:"2px solid #A67577" };
+const xpStickyNote = { width: "120px", minHeight: "80px", background: "#FFF5E5", border: "1px solid var(--c3)", padding: "8px", fontSize: "12px", position:"relative", boxShadow:"2px 2px 0 rgba(0,0,0,0.1)", fontFamily: "'Mali', cursive" };
+const xpDeleteNote = { position:"absolute", top:0, right:"3px", color:"var(--c2)", cursor:"pointer", fontWeight:"bold" };
+const xpWindowHeader = { background: "var(--c2)", color:"white", padding:"5px 10px", display:"flex", justifyContent:"space-between", alignItems:"center", fontWeight:"bold", fontSize:"13px", borderBottom:"2px solid var(--c4)" };
 const xpWinControl = { 
     width: "24px", 
     height: "24px", 
@@ -1180,7 +1203,7 @@ const xpCloseBtn = {
     ...xpWinControl, 
     background: "rgba(255, 80, 80, 0.4)" /* Un rojito muy suave y translúcido */
 };
-const xpDropdownMenu = { position: "absolute", top: "100%", left: 0, background: "white", border: "1px solid #A67577", boxShadow: "2px 2px 5px rgba(0,0,0,0.2)", zIndex: 100, minWidth: "150px" };
+const xpDropdownMenu = { position: "absolute", top: "100%", left: 0, background: "white", border: "1px solid var(--c4)", boxShadow: "2px 2px 5px rgba(0,0,0,0.2)", zIndex: 100, minWidth: "150px" };
 const xpDropdownItem = { padding: "8px 15px", fontSize: "13px", cursor: "pointer", borderBottom: "1px solid #eee", color: "#333" };
 const xpTrashButton = { position:"absolute", top:0, right:0, background:"transparent", border:"none", cursor:"pointer", fontSize:"12px" };
 const xpPomoBtn = { border:"none", background:"transparent", cursor:"pointer", color:"white", fontWeight:"bold" };
