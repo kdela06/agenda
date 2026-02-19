@@ -76,7 +76,11 @@ function AgendaWorkspace() {
 
 // --- VENTANAS (MULTITAREA) ---
   const [ventanasAbiertas, setVentanasAbiertas] = useState([]);
-  const [ventanaActiva, setVentanaActiva] = useState('escritorio'); 
+  const [ventanaActiva, setVentanaActiva] = useState('escritorio');
+  const [pantallaDividida, setPantallaDividida] = useState(false);
+  const [ventanaDerecha, setVentanaDerecha] = useState(null);
+  const [focoDividido, setFocoDividido] = useState('izq');
+  const [ventanaPrevia, setVentanaPrevia] = useState(null);
   
   // Arrays para múltiples archivos (Sustituyen a archivoEditando, pdfFile, etc.)
   const [editoresAbiertos, setEditoresAbiertos] = useState([]); 
@@ -128,6 +132,20 @@ function AgendaWorkspace() {
         cargarYConstruirCalendario(tokenParsed);
     }
   }, []);
+
+  // --- PERSISTENCIA DEL ESPACIO DE TRABAJO ---
+  useEffect(() => {
+      if (!user || !carpetaActual) return;
+      const estadoGuardar = {
+          carpetaActual,
+          historial,
+          ventanaActiva,
+          ventanasAbiertas,
+          editoresAbiertos, // Guardamos el texto y código abierto
+          pdfsAbiertos: pdfsAbiertos.map(pdf => ({ ...pdf, blob: null })) // Vaciamos el blob binario para que quepa en la memoria
+      };
+      localStorage.setItem('workspace_state', JSON.stringify(estadoGuardar));
+  }, [carpetaActual, historial, ventanaActiva, ventanasAbiertas, editoresAbiertos, pdfsAbiertos, user]);
 
   // Pomodoro
   useEffect(() => {
@@ -186,7 +204,32 @@ function AgendaWorkspace() {
         let miAgendaId;
         if (res.data.files && res.data.files.length > 0) { miAgendaId = res.data.files[0].id; } 
         else { const createRes = await axios.post('https://www.googleapis.com/drive/v3/files', { name: 'mi_agenda', mimeType: 'application/vnd.google-apps.folder' }, { headers: { Authorization: `Bearer ${accessToken}` } }); miAgendaId = createRes.data.id; }
-        setRootId(miAgendaId); setCarpetaActual({ id: miAgendaId, name: 'mi_agenda' });
+        setRootId(miAgendaId); 
+        
+        // --- RESTAURAR VENTANAS Y CARPETAS ---
+        const guardado = JSON.parse(localStorage.getItem('workspace_state'));
+        if (guardado && guardado.carpetaActual) {
+            setCarpetaActual(guardado.carpetaActual);
+            setHistorial(guardado.historial || []);
+            setVentanasAbiertas(guardado.ventanasAbiertas || []);
+            setEditoresAbiertos(guardado.editoresAbiertos || []);
+            setVentanaActiva(guardado.ventanaActiva || 'escritorio');
+            
+            // Restaurar PDFs (Los vuelve a descargar en segundo plano)
+            if (guardado.pdfsAbiertos && guardado.pdfsAbiertos.length > 0) {
+                setPdfsAbiertos(guardado.pdfsAbiertos); // Muestra la ventana en "Descargando..."
+                guardado.pdfsAbiertos.forEach(async (pdf) => {
+                    try {
+                        const resPdf = await axios.get(`https://www.googleapis.com/drive/v3/files/${pdf.id}?alt=media`, { headers: { Authorization: `Bearer ${accessToken}` }, responseType: 'blob' });
+                        setPdfsAbiertos(prev => prev.map(p => p.id === pdf.id ? { ...p, blob: resPdf.data, error: null } : p));
+                    } catch (e) { console.error("Error recargando PDF al iniciar"); }
+                });
+            }
+        } else {
+            // Si es la primera vez que entra, lo mandamos a la raíz
+            setCarpetaActual({ id: miAgendaId, name: 'mi_agenda' });
+        }
+
         cargarWidgetsDeDrive(accessToken, miAgendaId);
       } catch (err) { 
           if(err.response && err.response.status === 401) cerrarSesion();
@@ -195,7 +238,7 @@ function AgendaWorkspace() {
 
   const cerrarSesion = () => {
     googleLogout(); setUser(null); setToken(null);
-    localStorage.removeItem('google_token'); localStorage.removeItem('google_user');
+    localStorage.removeItem('google_token'); localStorage.removeItem('google_user'); localStorage.removeItem('workspace_state');
     setCarpetaActual(null); setRootId(null); setHistorial([]);
     setVentanasAbiertas([]); setVentanaActiva('escritorio');
     setMisCalendarios([]); setUrlCalendarioCombinado(null); 
@@ -455,7 +498,146 @@ function AgendaWorkspace() {
       if (yaAbierto) { setVentanaActiva(id); } else { setVentanasAbiertas([...ventanasAbiertas, { id, title, url, mimeType }]); setVentanaActiva(id); } 
   };
   
-  const cerrarVentana = (id, e) => { if(e) e.stopPropagation(); const nuevas = ventanasAbiertas.filter(v => v.id !== id); setVentanasAbiertas(nuevas); if (ventanaActiva === id) { setVentanaActiva(nuevas.length > 0 ? nuevas[nuevas.length-1].id : 'escritorio'); } };
+  // --- CIERRE INTELIGENTE DE VENTANAS ---
+  const limpiarEstadoAlCerrar = (id) => {
+      if (pantallaDividida) {
+          if (ventanaActiva === id && ventanaDerecha) {
+              // Cierras la izquierda -> La derecha ocupa toda la pantalla
+              setVentanaActiva(ventanaDerecha);
+              setVentanaDerecha(null);
+              setPantallaDividida(false);
+          } else if (ventanaDerecha === id) {
+              // Cierras la derecha -> La izquierda ocupa toda la pantalla
+              setVentanaDerecha(null);
+              setPantallaDividida(false);
+          } else if (ventanaActiva === id) {
+              setVentanaActiva('escritorio');
+              setPantallaDividida(false);
+          }
+      } else {
+          if (ventanaActiva === id) setVentanaActiva('escritorio');
+      }
+  };
+
+  const cerrarVentana = (id, e) => { if(e) e.stopPropagation(); setVentanasAbiertas(prev => prev.filter(v => v.id !== id)); limpiarEstadoAlCerrar(id); };
+  const cerrarPdf = (id, e) => { if(e) e.stopPropagation(); setPdfsAbiertos(prev => prev.filter(p => p.id !== id)); limpiarEstadoAlCerrar(id); };
+  const cerrarEditor = (id, e) => { if(e) e.stopPropagation(); setEditoresAbiertos(prev => prev.filter(e => e.id !== id)); limpiarEstadoAlCerrar(id); };
+
+  const calcularEstiloVentana = (id, baseBackground) => {
+      const esIzq = ventanaActiva === id;
+      // Magia: la derecha se oculta temporalmente si vamos al escritorio
+      const esDer = pantallaDividida && ventanaDerecha === id && ventanaActiva !== 'escritorio';
+      const esVisible = esIzq || esDer;
+      
+      const estaEnfocada = pantallaDividida && ((esIzq && focoDividido === 'izq') || (esDer && focoDividido === 'der'));
+      
+      return {
+          display: esVisible ? 'flex' : 'none',
+          position: "absolute",
+          top: 0,
+          left: esDer ? "50%" : "0",
+          width: (pantallaDividida && esVisible) ? "50%" : "100%",
+          height: "100%",
+          background: baseBackground,
+          flexDirection: "column",
+          zIndex: estaEnfocada ? 205 : (esVisible ? 200 : 50),
+          border: estaEnfocada ? "3px solid #C99597" : "none", // ¡Borde negro eliminado!
+          boxSizing: "border-box",
+          boxShadow: esDer ? "-5px 0 15px rgba(0,0,0,0.2)" : "none"
+      };
+  };
+
+  // El cerebro con MEMORIA de pestañas
+  const enfocarVentana = (id) => {
+      if (id === 'escritorio') {
+          // Guardamos qué había en la izquierda antes de ir a INICIO para recordarlo
+          setVentanaPrevia(ventanaActiva);
+          setVentanaActiva('escritorio');
+          return;
+      }
+      
+      if (pantallaDividida) {
+          if (ventanaActiva === id) { setFocoDividido('izq'); return; }
+          if (ventanaDerecha === id) { 
+              // Si pulsas la pestaña derecha desde el escritorio, restauramos la izquierda también
+              if (ventanaActiva === 'escritorio' && ventanaPrevia) setVentanaActiva(ventanaPrevia);
+              setFocoDividido('der'); 
+              return; 
+          }
+          if (ventanaActiva === 'escritorio' && id === ventanaPrevia) {
+              // Si pulsas la pestaña izquierda desde el escritorio, la restauramos
+              setVentanaActiva(id);
+              setFocoDividido('izq');
+              return;
+          }
+
+          if (!ventanaActiva || ventanaActiva === 'escritorio') {
+              setVentanaActiva(id); setFocoDividido('izq');
+          } else if (!ventanaDerecha || ventanaDerecha === 'escritorio') {
+              setVentanaDerecha(id); setFocoDividido('der');
+          } else {
+              if (focoDividido === 'der') setVentanaDerecha(id);
+              else setVentanaActiva(id);
+          }
+      } else {
+          setVentanaActiva(id);
+      }
+  };
+
+  // Nueva función para volver a poner una ventana en grande
+  const maximizarVentana = (id, e) => {
+      e.stopPropagation();
+      setPantallaDividida(false);
+      setVentanaActiva(id);
+      setVentanaDerecha(null);
+  };
+
+  // Botones para forzar una ventana a un lado o intercambiarlas
+  const moverAIzquierda = (id, e) => {
+      e.stopPropagation(); 
+      setPantallaDividida(true);
+      
+      // Si ya está en la izquierda, solo le damos el foco
+      if (ventanaActiva === id) {
+          setFocoDividido('izq');
+          return;
+      }
+
+      // Guardamos qué había en la izquierda antes de machacarlo
+      const antiguaIzq = ventanaActiva;
+      setVentanaActiva(id); // Movemos la ventana actual a la izquierda
+      
+      // Intercambiamos: lo que había en la izq lo pasamos a la der
+      if (antiguaIzq && antiguaIzq !== 'escritorio') {
+          setVentanaDerecha(antiguaIzq);
+      } else {
+          setVentanaDerecha(null);
+      }
+      setFocoDividido('izq');
+  };
+
+  const moverADerecha = (id, e) => {
+      e.stopPropagation(); 
+      setPantallaDividida(true);
+
+      // Si ya está en la derecha, solo le damos el foco
+      if (ventanaDerecha === id) {
+          setFocoDividido('der');
+          return;
+      }
+
+      // Guardamos qué había en la derecha antes de machacarlo
+      const antiguaDer = ventanaDerecha;
+      setVentanaDerecha(id); // Movemos la ventana actual a la derecha
+      
+      // Intercambiamos: lo que había en la der lo pasamos a la izq
+      if (antiguaDer && antiguaDer !== 'escritorio') {
+          setVentanaActiva(antiguaDer);
+      } else {
+          setVentanaActiva('escritorio');
+      }
+      setFocoDividido('der');
+  };
 
   // --- NOTAS (SYNC NUBE) ---
   const cargarNotasDeDrive = async (tokenActual, folderId) => {
@@ -774,13 +956,16 @@ function AgendaWorkspace() {
 
                 {/* VENTANAS FLOTANTES */}
                 {ventanasAbiertas.map((ventana) => (
-                    <div key={ventana.id} style={{display: (ventanaActiva === ventana.id) ? 'flex' : 'none', position:"absolute", top:0, left:0, width:"100%", height:"100%", background:"#F1D8D9", flexDirection:"column", zIndex:50}}>
+                    <div key={ventana.id} style={calcularEstiloVentana(ventana.id, "#F1D8D9")} onMouseDown={() => { if(pantallaDividida) setFocoDividido(ventanaDerecha === ventana.id ? 'der' : 'izq'); }}>
                         <div style={xpWindowHeader}>
                             <span>👁 {ventana.title}</span>
                             <div style={{display:"flex", gap:"5px"}}>
+                                <button onClick={(e)=>moverAIzquierda(ventana.id, e)} style={xpWinControl} title="Mover a Izquierda">◧</button>
+                                <button onClick={(e)=>moverADerecha(ventana.id, e)} style={xpWinControl} title="Mover a Derecha">◨</button>
+                                <button onClick={(e)=>maximizarVentana(ventana.id, e)} style={xpWinControl} title="Pantalla Completa">□</button>
                                 <button onClick={()=>window.open(ventana.url, '_blank')} style={{...xpWinControl, width:"auto", padding:"0 5px"}} title="Abrir en pestaña nueva">🔗</button>
                                 <button onClick={()=>setVentanaActiva('escritorio')} style={xpWinControl}>_</button>
-                                <button onClick={(e)=>cerrarVentana(ventana.id, e)} style={{...xpWinControl, background:"#ff4444", color:"white"}}>X</button>
+                                <button onClick={(e)=>cerrarVentana(ventana.id, e)} style={xpCloseBtn}>✕</button>
                             </div>
                         </div>
                         <div style={{flex:1, background:"white", overflow:"hidden", display:"flex", justifyContent:"center", alignItems:"center"}}>
@@ -795,12 +980,15 @@ function AgendaWorkspace() {
 
                 {/* VISOR PDF MULTIPLE */}
                 {pdfsAbiertos.map(pdf => (
-                    <div key={pdf.id} style={{display: ventanaActiva === pdf.id ? 'flex' : 'none', position:"absolute", top:0, left:0, width:"100%", height:"100%", background:"#525659", flexDirection:"column", zIndex:200}}>
+                    <div key={pdf.id} style={calcularEstiloVentana(pdf.id, "#525659")} onMouseDown={() => { if(pantallaDividida) setFocoDividido(ventanaDerecha === pdf.id ? 'der' : 'izq'); }}>
                         <div style={xpWindowHeader}>
                             <span>📄 PDF: {pdf.file.name}</span>
                             <div style={{display:"flex", gap:"5px"}}>
+                                <button onClick={(e)=>moverAIzquierda(pdf.id, e)} style={xpWinControl} title="Mover a Izquierda">◧</button>
+                                <button onClick={(e)=>moverADerecha(pdf.id, e)} style={xpWinControl} title="Mover a Derecha">◨</button>
+                                <button onClick={(e)=>maximizarVentana(pdf.id, e)} style={xpWinControl} title="Pantalla Completa">□</button>
                                 <button onClick={()=>setVentanaActiva('escritorio')} style={xpWinControl}>_</button>
-                                <button onClick={()=>{setPdfsAbiertos(prev => prev.filter(p => p.id !== pdf.id)); if(ventanaActiva === pdf.id) setVentanaActiva('escritorio');}} style={{...xpWinControl, background:"#ff4444", color:"white"}}>X</button>
+                                <button onClick={(e)=>cerrarPdf(pdf.id, e)} style={xpCloseBtn}>✕</button>
                             </div>
                         </div>
                         
@@ -851,14 +1039,17 @@ function AgendaWorkspace() {
 
                 {/* EDITOR (HÍBRIDO) MULTIPLE */}
                 {editoresAbiertos.map(editor => (
-                    <div key={editor.id} style={{display: ventanaActiva === editor.id ? 'flex' : 'none', position:"absolute", top:0, left:0, width:"100%", height:"100%", background: editor.modo === 'code' ? "#1e1e1e" : "#fff", color: editor.modo === 'code' ? "#d4d4d4" : "#000", zIndex:200, flexDirection:"column", border: editor.modo === 'txt' ? "10px solid #C99597" : "none"}}>
+                    <div key={editor.id} style={{...calcularEstiloVentana(editor.id, editor.modo === 'code' ? "#1e1e1e" : "#fff"), color: editor.modo === 'code' ? "#d4d4d4" : "#000"}} onMouseDown={() => { if(pantallaDividida) setFocoDividido(ventanaDerecha === editor.id ? 'der' : 'izq'); }}>
                          <div style={{background: editor.modo === 'code' ? "#3c3c3c" : "#C99597", color: "white", padding: "5px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", borderBottom: editor.modo==='code'?"1px solid #252526":"2px solid #A67577"}}>
                             <div style={{display:"flex", alignItems:"center", gap:"10px"}}>
                                 <span style={{fontWeight:"bold"}}>{editor.modo === 'code' ? '💻 Visual Studio' : '📝 Bloc de Notas XP'} - {editor.file.name}</span>
                             </div>
                             <div style={{display:"flex", gap:"5px"}}>
+                                <button onClick={(e)=>moverAIzquierda(editor.id, e)} style={xpWinControl} title="Mover a Izquierda">◧</button>
+                                <button onClick={(e)=>moverADerecha(editor.id, e)} style={xpWinControl} title="Mover a Derecha">◨</button>
+                                <button onClick={(e)=>maximizarVentana(editor.id, e)} style={xpWinControl} title="Pantalla Completa">□</button>
                                 <button onClick={()=>setVentanaActiva('escritorio')} style={xpWinControl}>_</button>
-                                <button onClick={()=>{setEditoresAbiertos(prev => prev.filter(e => e.id !== editor.id)); if(ventanaActiva === editor.id) setVentanaActiva('escritorio');}} style={{...xpWinControl, background:"#ff4444", color:"white"}}>X</button>
+                                <button onClick={(e)=>cerrarEditor(editor.id, e)} style={xpCloseBtn}>✕</button>
                             </div>
                         </div>
                         <div style={{padding:"5px", background: editor.modo === 'code' ? "#007acc" : "#f0f0f0", borderBottom:"1px solid #ccc", display:"flex", justifyContent:"flex-end"}}>
@@ -877,14 +1068,14 @@ function AgendaWorkspace() {
             </div>
 
             <div style={xpBottomTaskbar}>
-                <button onClick={()=>{setVentanaActiva('escritorio')}} style={{...xpTaskButton, background: (ventanaActiva === 'escritorio') ? '#E3C0C2' : '#FAF6F4', fontWeight: "bold", borderRight:"2px solid #A67577", width:"100px"}}>📁 INICIO</button>
+                <button onClick={() => enfocarVentana('escritorio')} style={{...xpTaskButton, background: (ventanaActiva === 'escritorio' && !pantallaDividida) ? '#E3C0C2' : '#FAF6F4', fontWeight: "bold", borderRight:"2px solid #A67577", width:"100px"}}>📁 INICIO</button>
                 <div style={{display:"flex", gap:"5px", overflowX:"auto", flex:1, paddingLeft:"10px"}}>
-                    {ventanasAbiertas.map(ventana => (<button key={ventana.id} onClick={()=>{setVentanaActiva(ventana.id)}} style={{...xpTaskButton, background: ventanaActiva === ventana.id ? '#E3C0C2' : '#FAF6F4', width: "150px"}} title={ventana.title}>📄 {ventana.title}</button>))}
+                    {ventanasAbiertas.map(ventana => (<button key={ventana.id} onClick={()=>enfocarVentana(ventana.id)} style={{...xpTaskButton, background: (ventanaActiva === ventana.id || ventanaDerecha === ventana.id) ? '#E3C0C2' : '#FAF6F4', width: "150px"}} title={ventana.title}>📄 {ventana.title}</button>))}
                     {pdfsAbiertos.map(pdf => (
-                        <button key={`btn-pdf-${pdf.id}`} onClick={()=>setVentanaActiva(pdf.id)} style={{...xpTaskButton, background: ventanaActiva===pdf.id ?'#E3C0C2':'#fff', width: "150px"}}>📄 PDF {pdf.file.name}</button>
+                        <button key={`btn-pdf-${pdf.id}`} onClick={()=>enfocarVentana(pdf.id)} style={{...xpTaskButton, background: (ventanaActiva===pdf.id || ventanaDerecha===pdf.id) ?'#E3C0C2':'#fff', width: "150px"}}>📄 PDF {pdf.file.name}</button>
                     ))}
                     {editoresAbiertos.map(editor => (
-                        <button key={`btn-ed-${editor.id}`} onClick={()=>setVentanaActiva(editor.id)} style={{...xpTaskButton, background: ventanaActiva===editor.id ? (editor.modo==='code'?'#007acc':'#E3C0C2') : '#fff', color: (ventanaActiva===editor.id && editor.modo==='code')?'white':'black', border: "1px solid #000", width: "150px"}}>{editor.modo==='code'?'💻':'📝'} {editor.file.name}</button>
+                        <button key={`btn-ed-${editor.id}`} onClick={()=>enfocarVentana(editor.id)} style={{...xpTaskButton, background: (ventanaActiva===editor.id || ventanaDerecha===editor.id) ? (editor.modo==='code'?'#007acc':'#E3C0C2') : '#fff', color: ((ventanaActiva===editor.id || ventanaDerecha===editor.id) && editor.modo==='code')?'white':'black', border: "1px solid #000", width: "150px"}}>{editor.modo==='code'?'💻':'📝'} {editor.file.name}</button>
                     ))}
                 </div>
             </div>
@@ -922,7 +1113,27 @@ const xpIconName = { fontSize:"12px", marginTop:"5px", textAlign:"center", wordB
 const xpStickyNote = { width: "120px", minHeight: "80px", background: "#FFF5E5", border: "1px solid #DDB2B5", padding: "8px", fontSize: "12px", position:"relative", boxShadow:"2px 2px 0 rgba(0,0,0,0.1)", fontFamily: "'Mali', cursive" };
 const xpDeleteNote = { position:"absolute", top:0, right:"3px", color:"#C99597", cursor:"pointer", fontWeight:"bold" };
 const xpWindowHeader = { background: "#C99597", color:"white", padding:"5px 10px", display:"flex", justifyContent:"space-between", alignItems:"center", fontWeight:"bold", fontSize:"13px", borderBottom:"2px solid #A67577" };
-const xpWinControl = { width:"20px", height:"20px", border:"1px outset #fff", background:"#ddd", cursor:"pointer", fontSize:"10px", marginLeft:"2px", fontWeight:"bold" };
+const xpWinControl = { 
+    width: "24px", 
+    height: "24px", 
+    background: "rgba(255, 255, 255, 0.15)", /* Transparente para mimetizarse con el fondo */
+    border: "none", /* Sin bordes */
+    borderRadius: "4px", 
+    cursor: "pointer", 
+    color: "white", 
+    fontSize: "13px", 
+    marginLeft: "3px", 
+    display: "flex", 
+    justifyContent: "center", 
+    alignItems: "center", 
+    boxShadow: "none", /* Cero sombras */
+    fontFamily: "Arial, sans-serif" 
+};
+
+const xpCloseBtn = { 
+    ...xpWinControl, 
+    background: "rgba(255, 80, 80, 0.4)" /* Un rojito muy suave y translúcido */
+};
 const xpDropdownMenu = { position: "absolute", top: "100%", left: 0, background: "white", border: "1px solid #A67577", boxShadow: "2px 2px 5px rgba(0,0,0,0.2)", zIndex: 100, minWidth: "150px" };
 const xpDropdownItem = { padding: "8px 15px", fontSize: "13px", cursor: "pointer", borderBottom: "1px solid #eee", color: "#333" };
 const xpTrashButton = { position:"absolute", top:0, right:0, background:"transparent", border:"none", cursor:"pointer", fontSize:"12px" };
