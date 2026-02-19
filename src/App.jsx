@@ -42,7 +42,7 @@ function AgendaWorkspace() {
   // --- ESTADOS USUARIO ---
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
-  const [nombreUsuario, setNombreUsuario] = useState(localStorage.getItem("nombre_personalizado") || "Admin");
+  const [nombreUsuario, setNombreUsuario] = useState(localStorage.getItem("nombre_personalizado") || "mi agenda");
 
   // --- TEMAS Y ESTILOS ---
   const PALETAS = {
