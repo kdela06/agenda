@@ -180,37 +180,50 @@ function AgendaWorkspace() {
     }
   }, [carpetaActual, token]);
 
-  // --- ATAJO DE TECLADO (ALT + Q) PARA CAMBIAR PESTAÑAS ---
+  // --- ATAJOS DE TECLADO (ALT+Q y FLECHAS PDF) ---
   useEffect(() => {
       const handleKeyDown = (e) => {
-          // Detectar si pulsa Alt + Q
+          // Saber qué ventana tiene el foco real ahora mismo (útil para pantalla dividida)
+          const idEnfocado = pantallaDividida ? (focoDividido === 'der' ? ventanaDerecha : ventanaActiva) : ventanaActiva;
+
+          // 1. Cambiar de pestaña (Alt + Q)
           if (e.altKey && e.key.toLowerCase() === 'q') {
-              e.preventDefault(); // Evita que el navegador haga cosas raras
-              
-              // 1. Recopilamos todas las ventanas que están abiertas ahora mismo
+              e.preventDefault(); 
               const todasLasPestañas = [
-                  'escritorio', // Siempre podemos volver al inicio
+                  'escritorio', 
                   ...ventanasAbiertas.map(v => v.id),
                   ...pdfsAbiertos.map(p => p.id),
                   ...editoresAbiertos.map(ed => ed.id)
               ];
+              if (todasLasPestañas.length <= 1) return;
               
-              if (todasLasPestañas.length <= 1) return; // Si solo está el escritorio, no hacemos nada
-              
-              // 2. Buscamos dónde estamos ahora mismo
-              const indiceActual = todasLasPestañas.indexOf(ventanaActiva);
-              
-              // 3. Calculamos la siguiente (y si llega al final, vuelve al principio)
+              const indiceActual = todasLasPestañas.indexOf(idEnfocado);
               const siguienteIndice = (indiceActual + 1) % todasLasPestañas.length;
-              
-              // 4. Enfocamos la nueva ventana usando tu cerebro inteligente
               enfocarVentana(todasLasPestañas[siguienteIndice]);
+              return; // Salimos para no hacer nada más
+          }
+
+          // 2. Pasar hojas del PDF (Flecha Derecha / Flecha Izquierda)
+          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+              // Comprobamos si la ventana que estamos mirando es un PDF
+              const pdfActivo = pdfsAbiertos.find(p => p.id === idEnfocado);
+              
+              if (pdfActivo) {
+                  // Si estamos en un PDF, miramos qué flecha ha pulsado
+                  if (e.key === 'ArrowRight' && pdfActivo.pageNumber < (pdfActivo.numPages || 999)) {
+                      actualizarPdf(pdfActivo.id, { pageNumber: pdfActivo.pageNumber + 1 });
+                  } else if (e.key === 'ArrowLeft' && pdfActivo.pageNumber > 1) {
+                      actualizarPdf(pdfActivo.id, { pageNumber: pdfActivo.pageNumber - 1 });
+                  }
+              }
           }
       };
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [ventanaActiva, ventanasAbiertas, pdfsAbiertos, editoresAbiertos]); // <-- Muy importante poner las dependencias
+      
+      // Añadimos a la lista las variables de pantalla dividida para que el teclado sepa dónde estamos
+  }, [ventanaActiva, ventanasAbiertas, pdfsAbiertos, editoresAbiertos, pantallaDividida, ventanaDerecha, focoDividido]);
 
   // --- LOGIN ---
   const login = useGoogleLogin({
