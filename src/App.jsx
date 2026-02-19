@@ -52,7 +52,9 @@ function AgendaWorkspace() {
   const [pomoInput, setPomoInput] = useState("25");
 
   // --- SELECCIÓN ---
-  const [itemSeleccionado, setItemSeleccionado] = useState(null);
+  //const [itemSeleccionado, setItemSeleccionado] = useState(null);
+  const [seleccionados, setSeleccionados] = useState([]);
+  const [portapapeles, setPortapapeles] = useState(null);
 
   // --- NAVEGACIÓN ---
   const [rootId, setRootId] = useState(null);
@@ -155,7 +157,7 @@ function AgendaWorkspace() {
   // Carga Contenido
   useEffect(() => {
     if (token && carpetaActual) {
-        setItemSeleccionado(null);
+        setSeleccionados([]);
         if (carpetaActual.id === 'TRASH') cargarPapelera(token);
         else { 
             cargarContenidoDrive(token, carpetaActual.id); 
@@ -199,46 +201,76 @@ function AgendaWorkspace() {
     localStorage.removeItem('google_token'); localStorage.removeItem('google_user');
     setCarpetaActual(null); setRootId(null); setHistorial([]);
     setVentanasAbiertas([]); setVentanaActiva('escritorio');
-    setMisCalendarios([]); setUrlCalendarioCombinado(null); setArchivoEditando(null);
+    setMisCalendarios([]); setUrlCalendarioCombinado(null); 
+    setEditoresAbiertos([]); setPdfsAbiertos([]); setSeleccionados([]);
   };
   const cambiarNombre = (nuevo) => { const n = nuevo || prompt("Nombre para la ventana:"); if (n) { setNombreUsuario(n); localStorage.setItem("nombre_personalizado", n); } };
 
   // --- GESTIÓN DE ARCHIVOS ---
-  const handleSeleccion = (item, tipo) => {
-      if (itemSeleccionado && itemSeleccionado.id === item.id) {
-          setItemSeleccionado(null);
+  const handleSeleccion = (e, item, tipo) => {
+      e.stopPropagation(); // Evita clics fantasma
+      const yaSeleccionado = seleccionados.find(s => s.id === item.id);
+
+      if (e.ctrlKey || e.metaKey) {
+          // Modo Múltiple: Ctrl + Clic
+          if (yaSeleccionado) {
+              setSeleccionados(seleccionados.filter(s => s.id !== item.id));
+          } else {
+              setSeleccionados([...seleccionados, { ...item, tipo }]);
+          }
       } else {
-          setItemSeleccionado({ ...item, tipo });
+          // Modo Simple: Clic normal
+          if (yaSeleccionado && seleccionados.length === 1) {
+              setSeleccionados([]); // Deseleccionar si pinchas el único que hay
+          } else {
+              setSeleccionados([{ ...item, tipo }]);
+          }
       }
   };
 
   const ejecutarRenombrar = async () => {
-      if (!itemSeleccionado) return;
-      const nuevoNombre = prompt("Nuevo nombre:", itemSeleccionado.name);
-      if (nuevoNombre && nuevoNombre !== itemSeleccionado.name) {
+      if (seleccionados.length !== 1) return; // Solo se puede renombrar uno a la vez
+      const item = seleccionados[0];
+      const nuevoNombre = prompt("Nuevo nombre:", item.name);
+      if (nuevoNombre && nuevoNombre !== item.name) {
           try {
-              await axios.patch(`https://www.googleapis.com/drive/v3/files/${itemSeleccionado.id}`, 
-                  { name: nuevoNombre }, 
-                  { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-              );
+              await axios.patch(`https://www.googleapis.com/drive/v3/files/${item.id}`, { name: nuevoNombre }, { headers: { Authorization: `Bearer ${token}` } });
               cargarContenidoDrive(token, carpetaActual.id);
-              setItemSeleccionado(null);
+              setSeleccionados([]);
           } catch (err) { alert("Error al renombrar"); }
       }
   };
 
   const ejecutarBorrar = async () => {
-      if (!itemSeleccionado) return;
-      if (window.confirm(`¿Mover "${itemSeleccionado.name}" a la papelera?`)) {
+      if (seleccionados.length === 0) return;
+      if (window.confirm(`¿Mover ${seleccionados.length} elemento(s) a la papelera?`)) {
           try {
-              await axios.patch(`https://www.googleapis.com/drive/v3/files/${itemSeleccionado.id}`, 
-                  { trashed: true, appProperties: { deletedBy: 'agenda_web' } }, 
-                  { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-              );
+              await Promise.all(seleccionados.map(item => 
+                  axios.patch(`https://www.googleapis.com/drive/v3/files/${item.id}`, { trashed: true, appProperties: { deletedBy: 'agenda_web' } }, { headers: { Authorization: `Bearer ${token}` } })
+              ));
               cargarContenidoDrive(token, carpetaActual.id);
-              setItemSeleccionado(null);
-          } catch (err) { alert("Error al borrar"); }
+              setSeleccionados([]);
+          } catch (err) { alert("Error al borrar algunos archivos"); }
       }
+  };
+
+  const ejecutarCortar = () => {
+      if (seleccionados.length === 0) return;
+      // Guardamos la lista de todos los archivos seleccionados en el portapapeles
+      const itemsCortados = seleccionados.map(item => ({ id: item.id, oldParent: carpetaActual.id, name: item.name }));
+      setPortapapeles(itemsCortados);
+      setSeleccionados([]); // Limpiamos la selección
+  };
+
+  const ejecutarPegar = async () => {
+      if (!portapapeles || !portapapeles.length || !carpetaActual || !token) return;
+      try {
+          await Promise.all(portapapeles.map(item =>
+              axios.patch(`https://www.googleapis.com/drive/v3/files/${item.id}?addParents=${carpetaActual.id}&removeParents=${item.oldParent}`, {}, { headers: { Authorization: `Bearer ${token}` } })
+          ));
+          setPortapapeles(null);
+          cargarContenidoDrive(token, carpetaActual.id);
+      } catch (err) { alert("Error al mover los archivos"); }
   };
 
   // --- CALENDARIO ---
@@ -567,17 +599,30 @@ function AgendaWorkspace() {
                                     </div>
 
                                     {/* BARRA DE ACCIÓN INTELIGENTE */}
-                                    {itemSeleccionado ? (
+                                    {seleccionados.length > 0 ? (
                                         <div style={{display:"flex", gap:"10px", marginLeft:"10px", alignItems:"center", background:"#E3C0C2", padding:"2px 10px", borderRadius:"4px", flex:1}}>
-                                            <span style={{fontWeight:"bold", fontSize:"12px", color: "white"}}>Seleccionado: {itemSeleccionado.name}</span>
-                                            <button onClick={ejecutarRenombrar} style={{...xpButton, fontSize:"12px", padding:"2px 8px"}}>✏️ Renombrar</button>
+                                            <span style={{fontWeight:"bold", fontSize:"12px", color: "white"}}>
+                                                {seleccionados.length === 1 ? `Seleccionado: ${seleccionados[0].name}` : `${seleccionados.length} seleccionados`}
+                                            </span>
+                                            {seleccionados.length === 1 && (
+                                                <button onClick={ejecutarRenombrar} style={{...xpButton, fontSize:"12px", padding:"2px 8px"}}>✏️ Renombrar</button>
+                                            )}
+                                            <button onClick={ejecutarCortar} style={{...xpButton, fontSize:"12px", padding:"2px 8px"}}>✂️ Cortar</button>
                                             <button onClick={ejecutarBorrar} style={{...xpButton, fontSize:"12px", padding:"2px 8px", color:"red"}}>🗑️ Borrar</button>
-                                            <button onClick={()=>setItemSeleccionado(null)} style={{...xpButton, fontSize:"12px", padding:"2px 8px"}}>❌</button>
+                                            <button onClick={()=>setSeleccionados([])} style={{...xpButton, fontSize:"12px", padding:"2px 8px"}}>❌</button>
                                         </div>
                                     ) : (
-                                        <div style={{borderLeft:"1px solid #ccc", paddingLeft:"10px", display:"flex", gap:"5px", flex:1}}>
+                                        <div style={{borderLeft:"1px solid #ccc", paddingLeft:"10px", display:"flex", gap:"5px", flex:1, alignItems:"center"}}>
                                             <input type="text" value={nuevaNotaTexto} onChange={(e)=>setNuevaNotaTexto(e.target.value)} placeholder="Nota..." style={{...xpInput, background:"#FFF5E5"}}/>
                                             <button onClick={agregarNota} style={{...xpButton, background:"#FFF5E5"}}>📌</button>
+                                            
+                                            {portapapeles && (
+                                                <div style={{marginLeft:"auto", display:"flex", alignItems:"center", gap:"5px"}}>
+                                                    <span style={{fontSize:"12px", color:"#C99597"}}>En portapapeles: {portapapeles.length} item(s)</span>
+                                                    <button onClick={ejecutarPegar} style={{...xpButton, background:"#e6ffed", color:"#2E7D32", border:"1px outset #A5D6A7"}}>📋 Pegar Aquí</button>
+                                                    <button onClick={()=>setPortapapeles(null)} style={{...xpButton, color:"red", padding:"2px 6px"}}>x</button>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -607,9 +652,9 @@ function AgendaWorkspace() {
                             <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(90px, 1fr))", gap:"15px"}}>
                                 {carpetas.map(c => (
                                     <div key={c.id} 
-                                         onClick={()=>handleSeleccion(c, 'folder')}
+                                         onClick={(e)=>handleSeleccion(e, c, 'folder')}
                                          onDoubleClick={()=>{setHistorial([...historial, carpetaActual]); setCarpetaActual(c);}} 
-                                         style={{...xpIconContainer, background: itemSeleccionado?.id === c.id ? '#DCEAF7' : 'transparent', border: itemSeleccionado?.id === c.id ? '1px dotted #245ED1' : '1px solid transparent'}}>
+                                         style={{...xpIconContainer, background: seleccionados.find(s=>s.id === c.id) ? '#DCEAF7' : 'transparent', border: seleccionados.find(s=>s.id === c.id) ? '1px dotted #245ED1' : '1px solid transparent', opacity: portapapeles?.find(p=>p.id === c.id) ? 0.5 : 1}}>
                                         
                                         {carpetaActual?.id === 'TRASH' ? (
                                             <div style={{textAlign:"center"}}><div style={{...xpFolderIcon, opacity:0.5}}></div><div style={xpIconName}>{c.name}</div><button onClick={()=>restaurarDePapelera(c.id)} style={{fontSize:"12px"}}>♻️</button><button onClick={()=>eliminarDefinitivamente(c.id)} style={{fontSize:"12px", color:"red"}}>❌</button></div>
@@ -620,9 +665,9 @@ function AgendaWorkspace() {
                                 ))}
                                 {archivos.map(a => (
                                     <div key={a.id} 
-                                         onClick={()=>handleSeleccion(a, 'file')}
+                                         onClick={(e)=>handleSeleccion(e, a, 'file')}
                                          onDoubleClick={()=>detectarTipoYAbrir(a)} 
-                                         style={{...xpIconContainer, background: itemSeleccionado?.id === a.id ? '#DCEAF7' : 'transparent', border: itemSeleccionado?.id === a.id ? '1px dotted #245ED1' : '1px solid transparent'}}>
+                                         style={{...xpIconContainer, background: seleccionados.find(s=>s.id === a.id) ? '#DCEAF7' : 'transparent', border: seleccionados.find(s=>s.id === a.id) ? '1px dotted #245ED1' : '1px solid transparent', opacity: portapapeles?.find(p=>p.id === a.id) ? 0.5 : 1}}>
                                         
                                         {carpetaActual?.id === 'TRASH' ? (
                                             <div style={{textAlign:"center"}}><div style={{...xpFileIcon, opacity:0.5}}></div><div style={xpIconName}>{a.name}</div><button onClick={()=>restaurarDePapelera(a.id)} style={{fontSize:"12px"}}>♻️</button><button onClick={()=>eliminarDefinitivamente(a.id)} style={{fontSize:"12px", color:"red"}}>❌</button></div>
