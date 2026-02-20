@@ -2,6 +2,7 @@ import { GoogleOAuthProvider, useGoogleLogin, googleLogout } from '@react-oauth/
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Editor from '@monaco-editor/react';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
 // --- CONFIGURACIÓN PDF (VITE COMPATIBLE 100%) ---
 import { pdfjs, Document, Page } from 'react-pdf';
@@ -96,6 +97,27 @@ function AgendaWorkspace() {
   // Arrays para múltiples archivos (Sustituyen a archivoEditando, pdfFile, etc.)
   const [editoresAbiertos, setEditoresAbiertos] = useState([]); 
   const [pdfsAbiertos, setPdfsAbiertos] = useState([]);
+
+  // --- CONFIGURACIÓN DE HERRAMIENTAS ---
+  const [coloresSubrayador, setColoresSubrayador] = useState(() => {
+      const guardado = localStorage.getItem('agenda_pdf_colores');
+      return guardado ? JSON.parse(guardado) : ['#F1D8D9', '#E2E4CE', '#EAE0DA'];
+  });
+
+  // NUEVO: Colores independientes para el texto
+  const [coloresTexto, setColoresTexto] = useState(() => {
+      const guardado = localStorage.getItem('agenda_pdf_colores_txt');
+      return guardado ? JSON.parse(guardado) : ['#000000', '#D32F2F', '#1976D2']; // Negro, Rojo, Azul por defecto
+  });
+
+  // NUEVO: Colores independientes para el dibujo a mano
+  const [coloresDibujo, setColoresDibujo] = useState(() => {
+      const guardado = localStorage.getItem('agenda_pdf_colores_dibujo');
+      return guardado ? JSON.parse(guardado) : ['#000000', '#D32F2F', '#1976D2'];
+  });
+
+  // NUEVO: Modo de puntero (Para evitar pintar con la mano)
+  const [modoPuntero, setModoPuntero] = useState('cualquiera'); // 'cualquiera' o 'lapiz'
   
   // --- WIDGETS Y CALENDARIO ---
   const [verWidgets, setVerWidgets] = useState(true);
@@ -503,6 +525,194 @@ function AgendaWorkspace() {
           await axios.patch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, editor.content, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' } }); 
           alert("✅ Guardado correctamente");
       } catch (err) { console.error("Error al guardar"); } 
+  };
+
+  // --- MOTOR DE ANOTACIONES PRO ---
+  
+  const hexToRgb = (hex) => {
+      let limpio = hex.replace('#', '');
+      if (limpio.length === 3) limpio = limpio.split('').map(c => c + c).join('');
+      if (limpio.length !== 6) return rgb(0.8, 0.8, 0.8);
+      return rgb(parseInt(limpio.slice(0, 2), 16) / 255, parseInt(limpio.slice(2, 4), 16) / 255, parseInt(limpio.slice(4, 6), 16) / 255);
+  };
+
+  const deshacerAnotacion = (pdfId) => {
+      const pdf = pdfsAbiertos.find(p => p.id === pdfId);
+      if (!pdf || !pdf.anotaciones || pdf.anotaciones.length === 0) return;
+      const nuevas = [...pdf.anotaciones];
+      nuevas.pop(); // Elimina la última acción del historial
+      actualizarPdf(pdfId, { anotaciones: nuevas, modificado: nuevas.length > 0 });
+  };
+
+  const borrarAnotacionEspecifica = (pdfId, indexAbsoluto) => {
+      const pdf = pdfsAbiertos.find(p => p.id === pdfId);
+      if (!pdf || !pdf.anotaciones) return;
+      
+      const nuevasAnotaciones = [...pdf.anotaciones];
+      nuevasAnotaciones.splice(indexAbsoluto, 1); // Borra exactamente el trazo que tocamos
+      
+      actualizarPdf(pdfId, { anotaciones: nuevasAnotaciones, modificado: true });
+  };
+
+  const manejarInteraccionPdf = (e, pdfId, pageNumber, tipoEvento) => {
+      const pdf = pdfsAbiertos.find(p => p.id === pdfId);
+      const herramienta = pdf.herramientaActiva || 'subrayador';
+      
+      // DEPENDIENDO DE LA HERRAMIENTA, ELEGIMOS SU PALETA DE COLORES
+      const paletaColores = herramienta === 'texto' ? coloresTexto : coloresSubrayador;
+      const colorActual = paletaColores[pdf.colorActivo || 0];
+
+      // MODO TEXTO (Al hacer Clic)
+      if (herramienta === 'texto' && tipoEvento === 'click') {
+          const text = prompt("📝 Escribe tu anotación:");
+          if (!text) return;
+
+          const pageElement = document.getElementById(`pdf-page-${pdfId}-${pageNumber}`);
+          const rect = pageElement.getBoundingClientRect();
+          
+          actualizarPdf(pdfId, {
+              anotaciones: [...(pdf.anotaciones || []), {
+                  type: 'texto', page: pageNumber, text: text,
+                  xPct: (e.clientX - rect.left) / rect.width,
+                  yPct: (e.clientY - rect.top) / rect.height,
+                  color: colorActual
+              }],
+              modificado: true
+          });
+      }
+
+      // MODO SUBRAYADOR (Al soltar el ratón tras arrastrar)
+      if (herramienta === 'subrayador' && tipoEvento === 'mouseup') {
+          const selection = window.getSelection();
+          if (!selection.rangeCount || selection.isCollapsed) return;
+
+          const range = selection.getRangeAt(0);
+          const rects = range.getClientRects();
+          const pageElement = document.getElementById(`pdf-page-${pdfId}-${pageNumber}`);
+          const pageRect = pageElement.getBoundingClientRect();
+
+          const nuevosSubrayados = Array.from(rects).map(rect => ({
+              xPct: (rect.left - pageRect.left) / pageRect.width,
+              yPct: (rect.top - pageRect.top) / pageRect.height,
+              widthPct: rect.width / pageRect.width,
+              heightPct: rect.height / pageRect.height,
+          }));
+
+          actualizarPdf(pdfId, {
+              anotaciones: [...(pdf.anotaciones || []), {
+                  type: 'subrayado', page: pageNumber, rects: nuevosSubrayados, color: colorActual
+              }],
+              modificado: true
+          });
+          selection.removeAllRanges();
+      }
+  };
+  
+  // NUEVO: Calculadora de precisión milimétrica para el lápiz
+  const obtenerCoordenadas = (e, pdfId, pageNumber) => {
+      // Buscamos la capa real del PDF generada por la librería, no nuestro contenedor
+      let pageElement = document.querySelector(`#pdf-page-${pdfId}-${pageNumber} .react-pdf__Page`);
+      if (!pageElement) pageElement = document.getElementById(`pdf-page-${pdfId}-${pageNumber}`);
+      
+      const rect = pageElement.getBoundingClientRect();
+      let xPct = (e.clientX - rect.left) / rect.width;
+      let yPct = (e.clientY - rect.top) / rect.height;
+
+      // Evitamos que pinte por fuera de los márgenes del folio
+      xPct = Math.max(0, Math.min(1, xPct));
+      yPct = Math.max(0, Math.min(1, yPct));
+
+      return { xPct, yPct };
+  };
+
+  const manejarPointerDown = (e, pdfId, pageNumber) => {
+      const pdf = pdfsAbiertos.find(p => p.id === pdfId);
+      if ((pdf.herramientaActiva || 'subrayador') !== 'lapiz') return;
+      
+      // Si el rechazo de palma está activo, solo aceptamos la punta del Stylus
+      if (modoPuntero === 'lapiz' && e.pointerType !== 'pen') return;
+
+      const { xPct, yPct } = obtenerCoordenadas(e, pdfId, pageNumber);
+
+      const nuevaAnotacion = { 
+          type: 'dibujo', page: pageNumber, points: [{xPct, yPct}], 
+          color: coloresDibujo[pdf.colorActivo || 0] 
+      };
+      
+      actualizarPdf(pdfId, { dibujando: true, anotaciones: [...(pdf.anotaciones || []), nuevaAnotacion], modificado: true });
+      e.target.setPointerCapture(e.pointerId);
+  };
+
+  const manejarPointerMove = (e, pdfId, pageNumber) => {
+      const pdf = pdfsAbiertos.find(p => p.id === pdfId);
+      if (!pdf || !pdf.dibujando) return;
+      if (modoPuntero === 'lapiz' && e.pointerType !== 'pen') return;
+
+      const { xPct, yPct } = obtenerCoordenadas(e, pdfId, pageNumber);
+
+      const nuevasAnot = [...pdf.anotaciones];
+      const trazoActual = nuevasAnot[nuevasAnot.length - 1];
+      trazoActual.points.push({xPct, yPct});
+      actualizarPdf(pdfId, { anotaciones: nuevasAnot });
+  };
+
+  const manejarPointerUp = (e, pdfId) => {
+      const pdf = pdfsAbiertos.find(p => p.id === pdfId);
+      if (!pdf || !pdf.dibujando) return;
+      actualizarPdf(pdfId, { dibujando: false });
+      e.target.releasePointerCapture(e.pointerId);
+  };
+
+  const guardarAnotacionesPdf = async (pdfId) => {
+      const pdf = pdfsAbiertos.find(p => p.id === pdfId);
+      if (!pdf || !pdf.blob || !pdf.anotaciones) return alert("No hay nada nuevo que guardar.");
+
+      try {
+          const arrayBuffer = await pdf.blob.arrayBuffer();
+          const pdfDoc = await PDFDocument.load(arrayBuffer);
+          const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+          const pages = pdfDoc.getPages();
+
+          pdf.anotaciones.forEach(anot => {
+              const paginaDestino = pages[anot.page - 1];
+              if(!paginaDestino) return;
+              const { width, height } = paginaDestino.getSize();
+              const colorRgb = hexToRgb(anot.color);
+
+              if (anot.type === 'subrayado') {
+                  anot.rects.forEach(rect => {
+                      paginaDestino.drawRectangle({
+                          x: rect.xPct * width,
+                          y: height - (rect.yPct * height) - (rect.heightPct * height),
+                          width: rect.widthPct * width, height: rect.heightPct * height,
+                          color: colorRgb, opacity: 0.4
+                      });
+                  });
+              } else if (anot.type === 'texto') {
+                  paginaDestino.drawText(anot.text, {
+                      x: anot.xPct * width,
+                      y: height - (anot.yPct * height) - 14,
+                      size: 14, font: helveticaFont, color: colorRgb
+                  });
+              } else if (anot.type === 'dibujo' && anot.points.length > 1) {
+                  // NUEVO: Trazar las líneas a mano alzada en el archivo final
+                  for (let i = 0; i < anot.points.length - 1; i++) {
+                      paginaDestino.drawLine({
+                          start: { x: anot.points[i].xPct * width, y: height - (anot.points[i].yPct * height) },
+                          end: { x: anot.points[i+1].xPct * width, y: height - (anot.points[i+1].yPct * height) },
+                          thickness: 2, color: colorRgb
+                      });
+                  }
+              }
+          });
+
+          const pdfBytes = await pdfDoc.save();
+          const nuevoBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+          await axios.patch(`https://www.googleapis.com/upload/drive/v3/files/${pdf.id}?uploadType=media`, nuevoBlob, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/pdf' } });
+
+          actualizarPdf(pdf.id, { blob: nuevoBlob, anotaciones: [], modificado: false });
+          alert("✅ Anotaciones guardadas en Drive");
+      } catch (err) { alert("Error al guardar el PDF."); }
   };
 
   const actualizarContenido = (id, nuevoContenido) => {
@@ -1053,63 +1263,180 @@ function AgendaWorkspace() {
                         <div style={xpWindowHeader}>
                             <span>📄 PDF: {pdf.file.name}</span>
                             <div style={{display:"flex", gap:"5px", alignItems: "center"}}>
-                                {/* NUEVO BOTÓN PARA OCULTAR/MOSTRAR CONTROLES */}
+                                
+                                {pdf.modificado && (
+                                    <button onClick={() => guardarAnotacionesPdf(pdf.id)} style={{cursor:"pointer", border:"1px solid white", background:"#2E7D32", color:"white", padding:"2px 8px", borderRadius:"3px", fontSize:"12px", fontFamily:"'Mali', cursive", marginRight: "10px", fontWeight:"bold", boxShadow:"0 0 5px rgba(46, 125, 50, 0.8)"}}>
+                                        💾 Guardar
+                                    </button>
+                                )}
+
+                                <button onClick={() => actualizarPdf(pdf.id, { mostrarEdicion: !pdf.mostrarEdicion })} style={{cursor:"pointer", border:"1px solid rgba(255,255,255,0.5)", background: pdf.mostrarEdicion ? "white" : "rgba(255,255,255,0.2)", color: pdf.mostrarEdicion ? "black" : "white", padding:"2px 8px", borderRadius:"3px", fontSize:"12px", fontFamily:"'Mali', cursive", marginRight: "5px", fontWeight: "bold"}}>
+                                    ✏️ Editar
+                                </button>
+
                                 <button onClick={() => actualizarPdf(pdf.id, { mostrarControles: pdf.mostrarControles === false ? true : false })} style={{cursor:"pointer", border:"1px solid rgba(255,255,255,0.5)", background:"rgba(255,255,255,0.2)", color:"white", padding:"2px 8px", borderRadius:"3px", fontSize:"12px", fontFamily:"'Mali', cursive", marginRight: "5px"}}>
                                     {pdf.mostrarControles === false ? '▼ Controles' : '▲ Ocultar'}
                                 </button>
                                 
-                                <button onClick={(e)=>moverAIzquierda(pdf.id, e)} style={xpWinControl} title="Mover a Izquierda">◧</button>
-                                <button onClick={(e)=>moverADerecha(pdf.id, e)} style={xpWinControl} title="Mover a Derecha">◨</button>
-                                <button onClick={(e)=>maximizarVentana(pdf.id, e)} style={xpWinControl} title="Pantalla Completa">□</button>
+                                <button onClick={(e)=>moverAIzquierda(pdf.id, e)} style={xpWinControl}>◧</button>
+                                <button onClick={(e)=>moverADerecha(pdf.id, e)} style={xpWinControl}>◨</button>
+                                <button onClick={(e)=>maximizarVentana(pdf.id, e)} style={xpWinControl}>□</button>
                                 <button onClick={()=>setVentanaActiva('escritorio')} style={xpWinControl}>_</button>
                                 <button onClick={(e)=>cerrarPdf(pdf.id, e)} style={xpCloseBtn}>✕</button>
                             </div>
                         </div>
                         
-                        {/* BARRA DE CONTROLES (OCULTABLE) */}
+                        {/* BARRA DE CONTROLES */}
                         {pdf.mostrarControles !== false && (
                             <div style={{padding:"5px", background:"#333", color:"white", display:"flex", gap:"10px", justifyContent:"center", alignItems:"center", flexWrap: "wrap"}}>
-                                {/* Controles de página */}
                                 <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.max(1, pdf.pageNumber - 1) })} disabled={pdf.pageNumber <= 1} style={xpButton}>◀ Ant</button>
-                                
                                 <div style={{display: "flex", alignItems: "center", gap: "5px"}}>
                                     <span>Pág</span>
-                                    <input 
-                                        type="number" 
-                                        value={pdf.pageNumber} 
-                                        onChange={(e) => {
-                                            let page = parseInt(e.target.value);
-                                            if (!isNaN(page)) {
-                                                if (pdf.numPages && page > pdf.numPages) page = pdf.numPages;
-                                                if (page < 1) page = 1;
-                                                actualizarPdf(pdf.id, { pageNumber: page });
-                                            }
-                                        }}
-                                        style={{ width: "50px", textAlign: "center", borderRadius: "3px", border: "none", padding: "2px", fontFamily: "'Mali', cursive", outline: "none", color: "black" }}
-                                    />
+                                    <input type="number" value={pdf.pageNumber} onChange={(e) => { let page = parseInt(e.target.value); if (!isNaN(page)) { if (pdf.numPages && page > pdf.numPages) page = pdf.numPages; if (page < 1) page = 1; actualizarPdf(pdf.id, { pageNumber: page }); } }} style={{ width: "50px", textAlign: "center", borderRadius: "3px", border: "none", padding: "2px", fontFamily: "'Mali', cursive", outline: "none", color: "black" }} />
                                     <span> {pdf.numPages ? `de ${pdf.numPages}` : ''}</span>
                                 </div>
-
                                 <button onClick={()=>actualizarPdf(pdf.id, { pageNumber: Math.min(pdf.numPages || 999, pdf.pageNumber + 1) })} disabled={pdf.numPages && pdf.pageNumber >= pdf.numPages} style={xpButton}>Sig ▶</button>
-                                
-                                {/* Separador vertical */}
                                 <div style={{ borderLeft: "2px solid #555", height: "20px", margin: "0 5px" }}></div>
-                                
-                                {/* Controles de Zoom */}
                                 <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.max(0.5, (pdf.zoom || 1) - 0.1) })} style={xpButton}>🔍 -</button>
                                 <span style={{ fontSize: "13px", width: "45px", textAlign: "center" }}>{Math.round((pdf.zoom || 1) * 100)}%</span>
                                 <button onClick={() => actualizarPdf(pdf.id, { zoom: Math.min(3, (pdf.zoom || 1) + 0.1) })} style={xpButton}>🔍 +</button>
                             </div>
                         )}
 
-                        <div style={{flex:1, overflow:"auto", display:"flex", justifyContent:"center", background:"#525659", padding:"20px"}}>
-                            {pdf.error ? (
-                                <div style={{color:"white", padding:"20px"}}>{pdf.error}</div>
-                            ) : pdf.blob ? (
-                                <Document file={pdf.blob} onLoadSuccess={({ numPages }) => actualizarPdf(pdf.id, { numPages, error: null })} onLoadError={(e) => actualizarPdf(pdf.id, { error: "Error al abrir PDF: " + e.message })} loading={<div style={{color:"white"}}>Cargando documento...</div>}>
-                                    <Page pageNumber={pdf.pageNumber} renderTextLayer={true} renderAnnotationLayer={false} width={Math.min(anchoVentana * 0.9, 800) * (pdf.zoom || 1)} />
+                        {/* ESTUCHE DE HERRAMIENTAS */}
+                        {pdf.mostrarEdicion && (
+                            <div style={{padding:"5px", background:"var(--c6)", borderBottom:"1px solid var(--c4)", display:"flex", gap:"10px", justifyContent:"center", alignItems:"center", flexWrap:"wrap"}}>
+                                
+                                <button onClick={() => deshacerAnotacion(pdf.id)} style={{...xpButton, padding:"2px 8px", background:"white"}} title="Deshacer último trazo">↩️ Deshacer</button>
+                                <div style={{ borderLeft: "2px solid var(--c4)", height: "20px", margin: "0 5px" }}></div>
+
+                                <button onClick={() => actualizarPdf(pdf.id, { herramientaActiva: 'subrayador' })} style={{...xpButton, padding:"2px 8px", background: (pdf.herramientaActiva || 'subrayador') === 'subrayador' ? 'var(--c2)' : 'white', color: (pdf.herramientaActiva || 'subrayador') === 'subrayador' ? 'white' : 'var(--c2)'}}>🖍️ Subrayar</button>
+                                <button onClick={() => actualizarPdf(pdf.id, { herramientaActiva: 'texto' })} style={{...xpButton, padding:"2px 8px", background: pdf.herramientaActiva === 'texto' ? 'var(--c2)' : 'white', color: pdf.herramientaActiva === 'texto' ? 'white' : 'var(--c2)'}}>📝 Texto</button>
+                                <button onClick={() => actualizarPdf(pdf.id, { herramientaActiva: 'lapiz' })} style={{...xpButton, padding:"2px 8px", background: pdf.herramientaActiva === 'lapiz' ? 'var(--c2)' : 'white', color: pdf.herramientaActiva === 'lapiz' ? 'white' : 'var(--c2)'}}>🖋️ Lápiz Libre</button>
+                                
+                                {/* NUEVO BOTÓN: GOMA */}
+                                <button onClick={() => actualizarPdf(pdf.id, { herramientaActiva: 'goma' })} style={{...xpButton, padding:"2px 8px", background: pdf.herramientaActiva === 'goma' ? '#E53935' : 'white', color: pdf.herramientaActiva === 'goma' ? 'white' : '#E53935', border: pdf.herramientaActiva === 'goma' ? '1px solid #B71C1C' : '1px outset var(--c3)'}}>🧽 Goma</button>
+
+                                <div style={{ borderLeft: "2px solid var(--c4)", height: "20px", margin: "0 5px" }}></div>
+
+                                {/* BOTÓN MODO PUNTERO CLARIFICADO */}
+                                <button onClick={() => setModoPuntero(m => m === 'cualquiera' ? 'lapiz' : 'cualquiera')} style={{...xpButton, padding:"2px 8px", background: modoPuntero === 'lapiz' ? '#2E7D32' : 'white', color: modoPuntero === 'lapiz' ? 'white' : 'var(--c2)', border: modoPuntero === 'lapiz' ? '1px solid #1B5E20' : '1px outset var(--c3)'}}>
+                                    {modoPuntero === 'lapiz' ? '✋ Modo: Solo Lápiz Óptico' : '🖐️ Modo: Dedo, Ratón y Lápiz'}
+                                </button>
+
+                                <div style={{ borderLeft: "2px solid var(--c4)", height: "20px", margin: "0 5px" }}></div>
+
+                                {/* Colores Dinámicos */}
+                                {[0, 1, 2].map(index => {
+                                    const activo = (pdf.colorActivo || 0) === index;
+                                    const herramienta = pdf.herramientaActiva || 'subrayador';
+                                    let colorMostrado = coloresSubrayador[index];
+                                    if (herramienta === 'texto') colorMostrado = coloresTexto[index];
+                                    if (herramienta === 'lapiz') colorMostrado = coloresDibujo[index];
+
+                                    // Si estamos usando la goma, difuminamos los colores para indicar que no se están usando
+                                    return (
+                                        <div key={index} style={{display: 'flex', alignItems: 'center', border: activo ? '2px solid black' : '2px solid transparent', borderRadius: '4px', padding: '1px', opacity: herramienta === 'goma' ? 0.3 : 1}}>
+                                            <input 
+                                                type="color" 
+                                                value={colorMostrado} 
+                                                disabled={herramienta === 'goma'}
+                                                onChange={(e) => {
+                                                    const nuevoColor = e.target.value;
+                                                    if (herramienta === 'texto') {
+                                                        const nuevos = [...coloresTexto]; nuevos[index] = nuevoColor;
+                                                        setColoresTexto(nuevos); localStorage.setItem('agenda_pdf_colores_txt', JSON.stringify(nuevos));
+                                                    } else if (herramienta === 'lapiz') {
+                                                        const nuevos = [...coloresDibujo]; nuevos[index] = nuevoColor;
+                                                        setColoresDibujo(nuevos); localStorage.setItem('agenda_pdf_colores_dibujo', JSON.stringify(nuevos));
+                                                    } else {
+                                                        const nuevos = [...coloresSubrayador]; nuevos[index] = nuevoColor;
+                                                        setColoresSubrayador(nuevos); localStorage.setItem('agenda_pdf_colores', JSON.stringify(nuevos));
+                                                    }
+                                                    actualizarPdf(pdf.id, { colorActivo: index });
+                                                }}
+                                                onClick={() => actualizarPdf(pdf.id, { colorActivo: index })}
+                                                style={{width: "25px", height: "25px", padding: 0, border: "none", cursor: herramienta === 'goma' ? 'not-allowed' : 'pointer'}}
+                                            />
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+
+                        {/* DOCUMENTO Y CAPA VISUAL */}
+                        <div style={{flex:1, overflow:"auto", display:"flex", justifyContent:"center", alignItems: "flex-start", padding:"20px", position:"relative"}}>
+                            {pdf.blob ? (
+                                <Document file={pdf.blob} onLoadSuccess={({ numPages }) => actualizarPdf(pdf.id, { numPages })} loading={<div style={{color:"white"}}>Cargando PDF...</div>}>
+                                    
+                                    {/* CONTENEDOR AJUSTADO MILIMÉTRICAMENTE */}
+                                    <div 
+                                        id={`pdf-page-${pdf.id}-${pdf.pageNumber}`}
+                                        style={{ 
+                                            position: 'relative', 
+                                            display: 'inline-block', // Se ajusta al ancho exacto del PDF
+                                            lineHeight: 0,           // Elimina el margen inferior invisible
+                                            touchAction: pdf.herramientaActiva === 'lapiz' ? 'none' : 'auto' 
+                                        }}
+                                        onPointerDown={(e) => manejarPointerDown(e, pdf.id, pdf.pageNumber)}
+                                        onPointerMove={(e) => manejarPointerMove(e, pdf.id, pdf.pageNumber)}
+                                        onPointerUp={(e) => manejarPointerUp(e, pdf.id)}
+                                        onPointerCancel={(e) => manejarPointerUp(e, pdf.id)}
+                                    >
+                                        <Page 
+                                            pageNumber={pdf.pageNumber} 
+                                            scale={pdf.zoom || 1} 
+                                            renderTextLayer={true} 
+                                            renderAnnotationLayer={true}
+                                            onMouseUp={(e) => manejarInteraccionPdf(e, pdf.id, pdf.pageNumber, 'mouseup')}
+                                            onClick={(e) => manejarInteraccionPdf(e, pdf.id, pdf.pageNumber, 'click')}
+                                        />
+
+                                        {/* CAPA VISUAL SUPERPUESTA (AHORA SENSIBLE A LA GOMA) */}
+                                        <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: pdf.herramientaActiva === 'goma' ? "auto" : "none", zIndex: 10 }}>
+                                            {(pdf.anotaciones || []).map((anot, indexAbsoluto) => {
+                                                if (anot.page !== pdf.pageNumber) return null;
+
+                                                if (anot.type === 'subrayado') {
+                                                    return anot.rects.map((r, i) => (
+                                                        <div key={`sub-${indexAbsoluto}-${i}`} 
+                                                            style={{ position: "absolute", left: `${r.xPct * 100}%`, top: `${r.yPct * 100}%`, width: `${r.widthPct * 100}%`, height: `${r.heightPct * 100}%`, backgroundColor: anot.color, opacity: 0.4, mixBlendMode: 'multiply', pointerEvents: pdf.herramientaActiva === 'goma' ? 'auto' : 'none', cursor: pdf.herramientaActiva === 'goma' ? 'pointer' : 'auto', border: pdf.herramientaActiva === 'goma' ? '2px dashed red' : 'none' }} 
+                                                            onPointerDown={(e) => { if(pdf.herramientaActiva === 'goma') { e.stopPropagation(); borrarAnotacionEspecifica(pdf.id, indexAbsoluto); } }}
+                                                        />
+                                                    ));
+                                                } else if (anot.type === 'texto') {
+                                                    return (
+                                                        <div key={`txt-${indexAbsoluto}`} 
+                                                            style={{ position: "absolute", left: `${anot.xPct * 100}%`, top: `${anot.yPct * 100}%`, color: anot.color, fontSize: `${14 * (pdf.zoom || 1)}px`, fontWeight: "bold", transform: "translateY(-100%)", fontFamily: "Helvetica, sans-serif", pointerEvents: pdf.herramientaActiva === 'goma' ? 'auto' : 'none', cursor: pdf.herramientaActiva === 'goma' ? 'pointer' : 'auto', textShadow: pdf.herramientaActiva === 'goma' ? '0 0 5px red' : 'none' }}
+                                                            onPointerDown={(e) => { if(pdf.herramientaActiva === 'goma') { e.stopPropagation(); borrarAnotacionEspecifica(pdf.id, indexAbsoluto); } }}
+                                                        >
+                                                            {anot.text}
+                                                        </div>
+                                                    );
+                                                } else if (anot.type === 'dibujo' && anot.points.length > 1) {
+                                                    const pointsStr = anot.points.map(p => `${p.xPct * 100},${p.yPct * 100}`).join(" ");
+                                                    return (
+                                                        <svg key={`dib-${indexAbsoluto}`} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", overflow: "visible", pointerEvents: "none" }}>
+                                                            {/* El trazo visible */}
+                                                            <polyline points={pointsStr} fill="none" stroke={anot.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                                                            
+                                                            {/* Hitbox invisible y grueso para la goma (hace que sea fácil acertar) */}
+                                                            <polyline points={pointsStr} fill="none" stroke={pdf.herramientaActiva === 'goma' ? "rgba(255,0,0,0.2)" : "transparent"} strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" 
+                                                                style={{ pointerEvents: pdf.herramientaActiva === 'goma' ? 'stroke' : 'none', cursor: 'pointer' }}
+                                                                onPointerDown={(e) => { if(pdf.herramientaActiva === 'goma') { e.stopPropagation(); borrarAnotacionEspecifica(pdf.id, indexAbsoluto); } }}
+                                                            />
+                                                        </svg>
+                                                    );
+                                                }
+                                                return null;
+                                            })}
+                                        </div>
+                                    </div>
+
                                 </Document>
-                            ) : (<div style={{color:"white"}}>Descargando...</div>)}
+                            ) : (
+                                <div style={{color:"white"}}>Descargando archivo...</div>
+                            )}
                         </div>
                     </div>
                 ))}
