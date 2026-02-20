@@ -1416,12 +1416,14 @@ function AgendaWorkspace() {
                                                 } else if (anot.type === 'dibujo' && anot.points.length > 1) {
                                                     const pointsStr = anot.points.map(p => `${p.xPct * 100},${p.yPct * 100}`).join(" ");
                                                     return (
-                                                        <svg key={`dib-${indexAbsoluto}`} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", overflow: "visible", pointerEvents: "none" }}>
+                                                        // EL ARREGLO ESTÁ AQUÍ: viewBox="0 0 100 100" y preserveAspectRatio="none"
+                                                        <svg key={`dib-${indexAbsoluto}`} viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", overflow: "visible", pointerEvents: "none" }}>
+                                                            
                                                             {/* El trazo visible */}
                                                             <polyline points={pointsStr} fill="none" stroke={anot.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                                                             
-                                                            {/* Hitbox invisible y grueso para la goma (hace que sea fácil acertar) */}
-                                                            <polyline points={pointsStr} fill="none" stroke={pdf.herramientaActiva === 'goma' ? "rgba(255,0,0,0.2)" : "transparent"} strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" 
+                                                            {/* Hitbox invisible para la goma (ahora tiene vectorEffect para no deformarse) */}
+                                                            <polyline points={pointsStr} fill="none" stroke={pdf.herramientaActiva === 'goma' ? "rgba(255,0,0,0.3)" : "transparent"} strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"
                                                                 style={{ pointerEvents: pdf.herramientaActiva === 'goma' ? 'stroke' : 'none', cursor: 'pointer' }}
                                                                 onPointerDown={(e) => { if(pdf.herramientaActiva === 'goma') { e.stopPropagation(); borrarAnotacionEspecifica(pdf.id, indexAbsoluto); } }}
                                                             />
