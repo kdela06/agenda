@@ -1499,7 +1499,16 @@ function AgendaWorkspace() {
                                     
                                     <div 
                                         id={`pdf-page-${pdf.id}-${pdf.pageNumber}`}
-                                        style={{ position: 'relative', display: 'inline-block', lineHeight: 0, touchAction: (pdf.herramientaActiva === 'lapiz' || pdf.herramientaActiva === 'subrayador') ? 'none' : 'auto' }}
+                                        style={{ 
+                                            position: 'relative', 
+                                            display: 'inline-block', 
+                                            lineHeight: 0, 
+                                            // LA MAGIA: Si estás en "Solo Lápiz", permite a los dedos hacer scroll y zoom ('auto'). 
+                                            // Si no, bloquea la pantalla ('none') para que puedas dibujar con el dedo.
+                                            touchAction: modoPuntero === 'lapiz' 
+                                                ? 'auto' 
+                                                : ((pdf.herramientaActiva === 'lapiz' || pdf.herramientaActiva === 'subrayador' || pdf.herramientaActiva === 'goma') ? 'none' : 'auto')
+                                        }}
                                         onPointerDown={(e) => manejarPointerDown(e, pdf.id, pdf.pageNumber)}
                                         onPointerMove={(e) => manejarPointerMove(e, pdf.id, pdf.pageNumber)}
                                         onPointerUp={(e) => manejarPointerUp(e, pdf.id)}
